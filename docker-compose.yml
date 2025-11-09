@@ -1,0 +1,238 @@
+services:
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    ports:
+      - "${QBIT_WEBUI}:8080"                    # qBittorrent WebUI to LAN
+    environment:
+      - TZ=${TZ}
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WG_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WG_ADDRESS}
+      - SERVER_FEATURES=port_forwarding
+      # Prefer selecting a P2P location. You can switch to SERVER_HOSTNAMES if you want to pin a single server.
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES}
+      - SERVER_CITIES=${SERVER_CITIES}
+      - VPN_PORT_FORWARDING=on
+      - FIREWALL_INPUT_PORTS=${QBIT_WEBUI}      # keep WebUI reachable on LAN
+      - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNET} # allow talking to LAN services
+    volumes:
+      - gluetun:/gluetun
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    network_mode: "service:gluetun"             # all qBit traffic exits via VPN
+    depends_on: [gluetun]
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=${QBIT_WEBUI}
+      - UMASK=002
+    volumes:
+      - ./config/qbittorrent:/config
+      - ${MEDIA_DIR}:${MEDIA_DIR}:rshared
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:${QBIT_WEBUI}/"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  pf-sync:
+    image: alpine:3.20
+    container_name: pf-sync
+    depends_on: [gluetun, qbittorrent]
+    restart: unless-stopped
+    network_mode: "service:gluetun"             # share namespace with qBit
+    environment:
+      QBIT_URL: http://127.0.0.1:${QBIT_WEBUI}
+    entrypoint: ["/bin/sh","-c"]
+    command: |
+      apk add --no-cache curl jq >/dev/null
+      JAR=/tmp/c.jar
+      login() {
+        curl -s -c "$$JAR" -H "Referer: $$QBIT_URL/" -H "Origin: $$QBIT_URL" \
+          --data "username=$$QBIT_USER&password=$$QBIT_PASS" \
+          "$$QBIT_URL/api/v2/auth/login" >/dev/null
+      }
+      set_pref() {
+        curl -s -b "$$JAR" -H "Referer: $$QBIT_URL/" -H "Origin: $$QBIT_URL" \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          --data-urlencode "json={\"listen_port\":$$1}" \
+          "$$QBIT_URL/api/v2/app/setPreferences" >/dev/null
+      }
+      while :; do
+        if [ -f /tmp/gluetun/forwarded_port ]; then
+          P=$$(cat /tmp/gluetun/forwarded_port 2>/dev/null || true)
+          case "$$P" in
+            ''|*[!0-9]*) ;;
+            *)
+              echo "Forwarded port: $$P"
+              login
+              set_pref "$$P"
+              ;;
+          esac
+        fi
+        sleep 30
+      done
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    networks: [media]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/prowlarr:/config
+      - ${MEDIA_DIR}:${MEDIA_DIR}:rshared
+    ports:
+      - "${PROWLARR_PORT}:9696"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9696/"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    networks: [media]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/sonarr:/config
+      - ${MEDIA_DIR}:${MEDIA_DIR}:rshared
+    ports:
+      - "${SONARR_PORT}:8989"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8989/"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    networks: [media]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/radarr:/config
+      - ${MEDIA_DIR}:${MEDIA_DIR}:rshared
+    ports:
+      - "${RADARR_PORT}:7878"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7878/"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    networks: [media]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/bazarr:/config
+      - ${MEDIA_DIR}:${MEDIA_DIR}:rshared
+    ports:
+      - "${BAZARR_PORT}:6767"
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    networks: [media]
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=info
+      - CAPTCHA_SOLVER=none
+    ports:
+      - "${FLARESOLVERR_PORT}:8191"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8191/"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    networks: [media]
+    command: --label-enable --cleanup --interval 3600
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  health-server:
+    build:
+      context: ./server-health
+      args:
+        DOCKER_GID: ${DOCKER_GID:-984}
+    container_name: health-server
+    networks:
+      - default
+      - media
+    environment:
+      - PORT=3000
+      - TZ=${TZ}
+      - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-servarr}
+      - SONARR_PORT=${SONARR_PORT:-8989}
+      - RADARR_PORT=${RADARR_PORT:-7878}
+      - PROWLARR_PORT=${PROWLARR_PORT:-9696}
+      - BAZARR_PORT=${BAZARR_PORT:-6767}
+      - FLARESOLVERR_PORT=${FLARESOLVERR_PORT:-8191}
+      - QBIT_WEBUI=${QBIT_WEBUI:-8080}
+      - QB_USER=${QB_USER}
+      - QB_PASS=${QB_PASS}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${HEALTH_PORT:-3000}:3000"
+    restart: unless-stopped
+    depends_on:
+      - gluetun
+      - qbittorrent
+      - sonarr
+      - radarr
+      - prowlarr
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+networks:
+  media:
+    driver: bridge
+
+volumes:
+  gluetun:

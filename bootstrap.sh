@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Parse command line arguments
+DRY_RUN=false
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=true
+  echo "=== DRY RUN MODE - No actual changes will be made ==="
+  echo ""
+fi
+
+# Interactive configuration function
+configure_env() {
+  echo "=== Servarr Stack Configuration ==="
+  echo ""
+
+  # Basic settings
+  read -p "Timezone (default: Europe/Stockholm): " TZ
+  TZ=${TZ:-Europe/Stockholm}
+
+  read -p "User ID/PUID (default: 1000): " PUID
+  PUID=${PUID:-1000}
+
+  read -p "Group ID/PGID (default: 1001): " PGID
+  PGID=${PGID:-1001}
+
+  # Detect LAN subnets from common interfaces
+  echo ""
+  echo "Detecting LAN subnets..."
+  DETECTED_SUBNETS=$(ip -4 route | grep -E "dev (eth[0-9]+|wlan[0-9]+|en[ops][0-9]+)" | grep -v "default" | grep -oP '^\K[0-9.]+/[0-9]+' | sort -u)
+
+  if [ -n "$DETECTED_SUBNETS" ]; then
+    echo "Detected subnets on your system:"
+    select subnet in $DETECTED_SUBNETS "Enter manually"; do
+      if [ "$subnet" = "Enter manually" ]; then
+        read -p "Enter LAN subnet (e.g., 192.168.1.0/24): " LAN_SUBNET
+      else
+        LAN_SUBNET="$subnet"
+      fi
+      break
+    done
+  else
+    read -p "LAN subnet (e.g., 192.168.1.0/24): " LAN_SUBNET
+  fi
+
+  read -p "Media directory path (default: /mnt/media): " MEDIA_DIR
+  MEDIA_DIR=${MEDIA_DIR:-/mnt/media}
+
+  echo ""
+  echo "--- qBittorrent Configuration ---"
+  read -p "qBittorrent WebUI port (default: 8080): " QBIT_WEBUI
+  QBIT_WEBUI=${QBIT_WEBUI:-8080}
+
+  read -p "qBittorrent username (default: admin): " QB_USER
+  QB_USER=${QB_USER:-admin}
+
+  read -sp "qBittorrent password (default: adminadmin): " QB_PASS
+  QB_PASS=${QB_PASS:-adminadmin}
+  echo ""
+
+  echo ""
+  echo "--- ProtonVPN Configuration ---"
+  read -p "VPN server country (default: Sweden): " SERVER_COUNTRIES
+  SERVER_COUNTRIES=${SERVER_COUNTRIES:-Sweden}
+
+  read -p "VPN server city (optional, default: Stockholm): " SERVER_CITIES
+  SERVER_CITIES=${SERVER_CITIES:-Stockholm}
+
+  echo ""
+  echo "Enter your ProtonVPN WireGuard credentials"
+  echo "(Get from: ProtonVPN → Downloads → WireGuard configuration)"
+  read -sp "WireGuard Private Key: " WG_PRIVATE_KEY
+  echo ""
+
+  read -p "WireGuard Address (e.g., 10.2.0.2/32): " WG_ADDRESS
+
+  echo ""
+  echo "--- Service Ports (press Enter for defaults) ---"
+  read -p "Sonarr port (default: 8989): " SONARR_PORT
+  SONARR_PORT=${SONARR_PORT:-8989}
+
+  read -p "Radarr port (default: 7878): " RADARR_PORT
+  RADARR_PORT=${RADARR_PORT:-7878}
+
+  read -p "Prowlarr port (default: 9696): " PROWLARR_PORT
+  PROWLARR_PORT=${PROWLARR_PORT:-9696}
+
+  read -p "Bazarr port (default: 6767): " BAZARR_PORT
+  BAZARR_PORT=${BAZARR_PORT:-6767}
+
+  read -p "FlareSolverr port (default: 8191): " FLARESOLVERR_PORT
+  FLARESOLVERR_PORT=${FLARESOLVERR_PORT:-8191}
+
+  read -p "Health dashboard port (default: 3000): " HEALTH_PORT
+  HEALTH_PORT=${HEALTH_PORT:-3000}
+
+  # Auto-detect Docker GID
+  DOCKER_GID=$(getent group docker | cut -d: -f3 2>/dev/null || echo "984")
+
+  # Auto-detect project name from directory
+  DETECTED_PROJECT_NAME=$(basename "$(pwd)")
+
+  # Write .env file
+  if [ "$DRY_RUN" = true ]; then
+    echo "[DRY RUN] Would write to .env:"
+    echo "---"
+  fi
+
+  ENV_CONTENT=$(cat << EOF
+# Basics
+TZ=${TZ}
+PUID=${PUID}
+PGID=${PGID}
+LAN_SUBNET=${LAN_SUBNET}
+MEDIA_DIR=${MEDIA_DIR}
+
+# Docker Configuration (Optional - auto-detected by bootstrap.sh)
+# Uncomment to override auto-detection:
+# DOCKER_GID=${DOCKER_GID}
+
+# Project name (auto-detected from directory: ${DETECTED_PROJECT_NAME})
+COMPOSE_PROJECT_NAME=${DETECTED_PROJECT_NAME}
+
+# qBittorrent Configuration
+QBIT_WEBUI=${QBIT_WEBUI}
+QB_USER=${QB_USER}
+QB_PASS=${QB_PASS}
+
+# Proton VPN selection
+# Prefer P2P locations. You can switch to SERVER_HOSTNAMES to pin a server.
+SERVER_COUNTRIES=${SERVER_COUNTRIES}
+SERVER_CITIES=${SERVER_CITIES}
+# Example if you want to pin a server instead of country/city:
+# SERVER_HOSTNAMES=se-41.protonvpn.net
+
+# Proton WireGuard from your config
+WG_PRIVATE_KEY=${WG_PRIVATE_KEY}
+WG_ADDRESS=${WG_ADDRESS}
+
+# Service Ports
+PROWLARR_PORT=${PROWLARR_PORT}
+SONARR_PORT=${SONARR_PORT}
+RADARR_PORT=${RADARR_PORT}
+BAZARR_PORT=${BAZARR_PORT}
+FLARESOLVERR_PORT=${FLARESOLVERR_PORT}
+HEALTH_PORT=${HEALTH_PORT}
+
+# Health Server Configuration
+# Service IPs and ports are auto-discovered from Docker containers
+# Whitelist these Docker network subnets in *arr apps and qBittorrent WebUI settings:
+#   172.18.0.0/16 (default network)
+#   172.19.0.0/16 (media network)
+EOF
+)
+
+  if [ "$DRY_RUN" = true ]; then
+    echo "$ENV_CONTENT"
+    echo "---"
+  else
+    echo "$ENV_CONTENT" > .env
+  fi
+
+  echo ""
+  if [ "$DRY_RUN" = false ]; then
+    echo "✓ Configuration saved to .env"
+  fi
+  echo "✓ Auto-detected Docker GID: ${DOCKER_GID}"
+  echo "✓ Auto-detected project name: ${DETECTED_PROJECT_NAME}"
+  echo ""
+}
+
+# Check if .env exists
+if [ ! -f .env ]; then
+  echo "No .env file found. Starting interactive configuration..."
+  echo ""
+  configure_env
+else
+  echo "Found existing .env file."
+  read -p "Do you want to reconfigure? (y/N): " RECONFIG
+  if [[ "$RECONFIG" =~ ^[Yy]$ ]]; then
+    configure_env
+  fi
+fi
+
+# Source environment variables
+set -a
+source .env
+set +a
+
+# Auto-detect Docker GID if not set in .env
+if [ -z "${DOCKER_GID:-}" ]; then
+  DETECTED_GID=$(getent group docker | cut -d: -f3 2>/dev/null || echo "984")
+  export DOCKER_GID="$DETECTED_GID"
+  echo "Auto-detected Docker GID: $DOCKER_GID"
+  if [ "$DOCKER_GID" != "984" ]; then
+    echo "Note: Your Docker GID differs from default (984). Using $DOCKER_GID"
+  fi
+fi
+
+# Create config directories
+if [ "$DRY_RUN" = true ]; then
+  echo "[DRY RUN] Would create config directories: config/{qbittorrent,prowlarr,sonarr,radarr,bazarr}"
+else
+  mkdir -p config/{qbittorrent,prowlarr,sonarr,radarr,bazarr}
+  echo "✓ Created config directories"
+fi
+
+# Create media directories
+echo ""
+if [ "$DRY_RUN" = true ]; then
+  echo "[DRY RUN] Would create media directories at ${MEDIA_DIR}:"
+  echo "  - ${MEDIA_DIR}/downloads/incomplete"
+  echo "  - ${MEDIA_DIR}/downloads/completed"
+  echo "  - ${MEDIA_DIR}/tv"
+  echo "  - ${MEDIA_DIR}/movies"
+  echo "[DRY RUN] Would run: sudo chown -R ${PUID}:${PGID} ${MEDIA_DIR}"
+else
+  echo "Creating media directories at ${MEDIA_DIR}..."
+  sudo mkdir -p "${MEDIA_DIR}"/{downloads/{incomplete,completed},tv,movies}
+  sudo chown -R "${PUID}:${PGID}" "${MEDIA_DIR}"
+  echo "✓ Created media directories"
+fi
+
+# Pull and start services
+echo ""
+if [ "$DRY_RUN" = true ]; then
+  echo "[DRY RUN] Would run: docker compose pull"
+  echo "[DRY RUN] Would run: docker compose up -d"
+  echo ""
+  echo "=== DRY RUN COMPLETE ==="
+  echo "No actual changes were made. To run for real, execute without --dry-run"
+else
+  echo "Pulling Docker images..."
+  docker compose pull
+
+  echo "Starting services..."
+  docker compose up -d
+
+  echo ""
+  echo "Setup complete!"
+  echo "Health dashboard: http://localhost:${HEALTH_PORT:-3000}"
+  echo "qBittorrent: http://localhost:${QBIT_WEBUI:-8080}"
+  echo "Sonarr: http://localhost:${SONARR_PORT:-8989}"
+  echo "Radarr: http://localhost:${RADARR_PORT:-7878}"
+  echo "Prowlarr: http://localhost:${PROWLARR_PORT:-9696}"
+  echo "Bazarr: http://localhost:${BAZARR_PORT:-6767}"
+fi

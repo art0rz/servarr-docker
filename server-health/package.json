@@ -1,0 +1,12 @@
+{
+  "name": "vpn-qbit-health",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node health-server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

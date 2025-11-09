@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Stack Health</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+      background: #0b0f14;
+      color: #e6edf3;
+      margin: 0;
+    }
+
+    header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #1f2a36;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    main {
+      padding: 20px;
+      max-width: 1100px;
+      margin: auto;
+    }
+
+    h2 {
+      margin: 24px 0 12px 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: 1px solid #2b3948;
+      background: #161b22;
+      color: #e6edf3;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .btn:hover {
+      background: #1c2128;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 14px;
+      border: 1px solid #1f2a36;
+      background: #161b22;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .card {
+      border: 1px solid #1f2a36;
+      border-radius: 12px;
+      padding: 16px;
+      background: #0f141b;
+    }
+
+    .card strong {
+      font-size: 15px;
+    }
+
+    .status {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .ok {
+      color: #3fb950;
+    }
+
+    .fail {
+      color: #f85149;
+    }
+
+    .tag {
+      font-size: 13px;
+      color: #8b949e;
+      margin-top: 4px;
+    }
+
+    .kv {
+      font-size: 12px;
+      color: #8b949e;
+      white-space: pre-wrap;
+      font-family: 'Consolas', 'Monaco', monospace;
+      margin: 8px 0 0 0;
+    }
+
+    a {
+      color: #8ab4f8;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .empty {
+      color: #6e7681;
+      text-align: center;
+      padding: 32px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Stack Health</strong>
+    <button class="btn" onclick="refresh()">Refresh</button>
+  </header>
+
+  <main>
+    <div id="summary"></div>
+
+    <h2>VPN</h2>
+    <div class="grid" id="vpn"></div>
+
+    <h2>Services</h2>
+    <div class="grid" id="services"></div>
+
+    <h2>Checks</h2>
+    <div class="grid" id="checks"></div>
+  </main>
+
+  <script>
+    // Utility functions
+    const escapeHtml = (str) => String(str).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const formatRate = (bytes) => bytes > 0 ? (bytes / 1024 / 1024).toFixed(2) + ' MB/s' : '0';
+
+    // Render functions
+    function renderSummary(data) {
+      const checks = data.checks || [];
+      const okCount = checks.filter(c => c.ok).length;
+      const total = checks.length;
+      return `<div class="badge">${okCount} / ${total} checks passing</div>`;
+    }
+
+    function renderVpnCard(vpn, qbitEgress) {
+      const v = vpn || {};
+      const q = qbitEgress || {};
+
+      return `
+        <div class="card">
+          <div class="status ${v.ok ? 'ok' : 'fail'}">
+            ${(v.healthy || 'unknown').toUpperCase()}
+          </div>
+          <div><strong>Gluetun VPN</strong></div>
+          <div class="tag">Running: ${v.running ? 'Yes' : 'No'}</div>
+          <div class="tag">Egress IP: ${v.vpnEgress || 'Unknown'}</div>
+          <div class="tag">Forwarded Port: ${v.forwardedPort || 'None'}</div>
+          ${v.uiHostPort ? `<div class="tag">WebUI Port: ${v.uiHostPort}</div>` : ''}
+        </div>
+        <div class="card">
+          <div class="status ${q.ok ? 'ok' : 'fail'}">
+            ${q.ok ? 'OK' : 'FAIL'}
+          </div>
+          <div><strong>qBittorrent Egress</strong></div>
+          <div class="tag">Egress IP: ${q.vpnEgress || 'Unknown'}</div>
+        </div>
+      `;
+    }
+
+    function renderServiceCard(service) {
+      const ok = service.ok === true;
+      const extras = [];
+
+      if (service.version) extras.push(`v${service.version}`);
+      if (typeof service.queue === 'number') extras.push(`Queue: ${service.queue}`);
+      if (typeof service.indexers === 'number') extras.push(`Indexers: ${service.indexers}`);
+      if (typeof service.dl === 'number') extras.push(`DL: ${formatRate(service.dl)}`);
+      if (typeof service.up === 'number') extras.push(`UP: ${formatRate(service.up)}`);
+      if (typeof service.total === 'number') extras.push(`Torrents: ${service.total}`);
+      if (typeof service.sessions === 'number') extras.push(`Sessions: ${service.sessions}`);
+
+      return `
+        <div class="card">
+          <div class="status ${ok ? 'ok' : 'fail'}">
+            ${ok ? 'OK' : 'FAIL'}
+          </div>
+          <div><strong>${service.name || 'Unknown'}</strong></div>
+          ${service.url ? `<div class="tag">
+            <a href="${service.url}" target="_blank" rel="noreferrer">${service.url}</a>
+          </div>` : ''}
+          ${extras.length > 0 ? `<div class="tag">${extras.join(' • ')}</div>` : ''}
+          ${service.reason ? `<div class="tag">Reason: ${escapeHtml(service.reason)}</div>` : ''}
+        </div>
+      `;
+    }
+
+    function renderCheckCard(check) {
+      const ok = check.ok === true;
+      return `
+        <div class="card">
+          <div class="status ${ok ? 'ok' : 'fail'}">
+            ${ok ? 'OK' : 'FAIL'}
+          </div>
+          <div>${escapeHtml(check.name)}</div>
+          ${check.detail ? `<pre class="kv">${escapeHtml(check.detail)}</pre>` : ''}
+        </div>
+      `;
+    }
+
+    // Main load function
+    async function loadHealth() {
+      try {
+        const response = await fetch('/api/health');
+        const data = await response.json();
+
+        // Update summary
+        document.getElementById('summary').innerHTML = renderSummary(data);
+
+        // Update VPN section
+        document.getElementById('vpn').innerHTML = renderVpnCard(data.vpn, data.qbitEgress);
+
+        // Update services section
+        const services = (data.services || []).map(renderServiceCard).join('');
+        document.getElementById('services').innerHTML = services ||
+          '<div class="empty">No services found</div>';
+
+        // Update checks section
+        const checks = (data.checks || []).map(renderCheckCard).join('');
+        document.getElementById('checks').innerHTML = checks ||
+          '<div class="empty">No checks configured</div>';
+
+      } catch (error) {
+        console.error('Failed to load health data:', error);
+        document.getElementById('summary').innerHTML =
+          '<div class="badge" style="color: #f85149;">Failed to load health data</div>';
+      }
+    }
+
+    function refresh() {
+      loadHealth();
+    }
+
+    // Initial load and auto-refresh
+    loadHealth();
+    setInterval(loadHealth, 3000);
+  </script>
+</body>
+</html>
