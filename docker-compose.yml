@@ -127,7 +127,9 @@ services:
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     container_name: prowlarr
-    networks: [media]
+    networks:
+      - default
+      - media
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -149,7 +151,9 @@ services:
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
-    networks: [media]
+    networks:
+      - default
+      - media
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -171,7 +175,9 @@ services:
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
-    networks: [media]
+    networks:
+      - default
+      - media
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -193,7 +199,9 @@ services:
   bazarr:
     image: lscr.io/linuxserver/bazarr:latest
     container_name: bazarr
-    networks: [media]
+    networks:
+      - default
+      - media
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -234,7 +242,9 @@ services:
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
-    networks: [media]
+    networks:
+      - default
+      - media
     environment:
       - TZ=${TZ}
       - LOG_LEVEL=info
@@ -253,7 +263,9 @@ services:
   recyclarr:
     image: ghcr.io/recyclarr/recyclarr:latest
     container_name: recyclarr
-    networks: [media]
+    networks:
+      - default
+      - media
     environment:
       - TZ=${TZ}
       - PUID=${PUID}
@@ -267,7 +279,9 @@ services:
   watchtower:
     image: containrrr/watchtower:latest
     container_name: watchtower
-    networks: [media]
+    networks:
+      - default
+      - media
     command: --label-enable --cleanup --interval 3600
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
