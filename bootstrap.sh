@@ -226,6 +226,7 @@ echo ""
 if [ "$DRY_RUN" = true ]; then
   echo "[DRY RUN] Would run: docker compose pull"
   echo "[DRY RUN] Would run: docker compose up -d"
+  echo "[DRY RUN] Would configure qBittorrent credentials"
   echo ""
   echo "=== DRY RUN COMPLETE ==="
   echo "No actual changes were made. To run for real, execute without --dry-run"
@@ -236,10 +237,86 @@ else
   echo "Starting services..."
   docker compose up -d
 
+  # Configure qBittorrent credentials if this is first run
+  echo ""
+  echo "Configuring qBittorrent credentials..."
+
+  # Wait for qBittorrent to start and extract temporary credentials from logs
+  QBIT_URL="http://localhost:${QBIT_WEBUI:-8080}"
+  echo -n "Waiting for qBittorrent to start"
+
+  TEMP_USER=""
+  TEMP_PASS=""
+
+  for i in {1..60}; do
+    # Check if qBittorrent API is responding
+    if curl -s -m 2 "$QBIT_URL/api/v2/app/version" > /dev/null 2>&1; then
+      echo " ready!"
+
+      # Extract temporary credentials from logs
+      LOGS=$(docker logs qbittorrent 2>&1 | tail -50)
+      TEMP_USER=$(echo "$LOGS" | grep -oP "The WebUI administrator username is: \K\w+")
+      TEMP_PASS=$(echo "$LOGS" | grep -oP "A temporary password is provided for this session: \K\S+")
+
+      break
+    fi
+    echo -n "."
+    sleep 1
+  done
+  echo ""
+
+  # Try to login and change credentials
+  echo "Setting qBittorrent credentials..."
+  COOKIE_JAR=$(mktemp)
+  LOGIN_SUCCESS=false
+
+  # Try temporary credentials first (newer qBittorrent versions)
+  if [ -n "$TEMP_USER" ] && [ -n "$TEMP_PASS" ]; then
+    echo "Found temporary credentials in logs (username: $TEMP_USER)"
+    if curl -s -c "$COOKIE_JAR" \
+      -H "Referer: $QBIT_URL/" \
+      -H "Origin: $QBIT_URL" \
+      --data "username=${TEMP_USER}&password=${TEMP_PASS}" \
+      "$QBIT_URL/api/v2/auth/login" | grep -q "Ok"; then
+      LOGIN_SUCCESS=true
+    fi
+  fi
+
+  # Fallback to default credentials (older qBittorrent versions)
+  if [ "$LOGIN_SUCCESS" = false ]; then
+    if curl -s -c "$COOKIE_JAR" \
+      -H "Referer: $QBIT_URL/" \
+      -H "Origin: $QBIT_URL" \
+      --data "username=admin&password=adminadmin" \
+      "$QBIT_URL/api/v2/auth/login" | grep -q "Ok"; then
+      LOGIN_SUCCESS=true
+      echo "Logged in with default credentials (admin:adminadmin)"
+    fi
+  fi
+
+  # Update credentials if we successfully logged in
+  if [ "$LOGIN_SUCCESS" = true ]; then
+    echo "Updating to your configured credentials..."
+
+    # Change the credentials
+    curl -s -b "$COOKIE_JAR" \
+      -H "Referer: $QBIT_URL/" \
+      -H "Origin: $QBIT_URL" \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      --data-urlencode "json={\"web_ui_username\":\"${QB_USER}\",\"web_ui_password\":\"${QB_PASS}\"}" \
+      "$QBIT_URL/api/v2/app/setPreferences" > /dev/null
+
+    echo "✓ qBittorrent credentials updated to: ${QB_USER}"
+  else
+    echo "qBittorrent already configured (could not login with temporary or default credentials)"
+  fi
+
+  rm -f "$COOKIE_JAR"
+
   echo ""
   echo "Setup complete!"
   echo "Health dashboard: http://localhost:${HEALTH_PORT:-3000}"
-  echo "qBittorrent: http://localhost:${QBIT_WEBUI:-8080}"
+  echo "qBittorrent: http://localhost:${QBIT_WEBUI:-8080} (user: ${QB_USER})"
   echo "Sonarr: http://localhost:${SONARR_PORT:-8989}"
   echo "Radarr: http://localhost:${RADARR_PORT:-7878}"
   echo "Prowlarr: http://localhost:${PROWLARR_PORT:-9696}"
