@@ -4,7 +4,7 @@ A complete Docker Compose setup for automated media management with VPN protecti
 
 ## Features
 
-- **VPN Protection**: All torrent traffic routed through Gluetun VPN gateway (ProtonVPN)
+- **VPN Protection**: All torrent traffic routed through Gluetun VPN gateway (supports all major VPN providers)
 - **Automatic Port Forwarding**: Syncs VPN forwarded port to qBittorrent
 - **Media Management**: Sonarr, Radarr, Prowlarr, Bazarr for automated downloads
 - **Captcha Solving**: FlareSolverr for indexer sites
@@ -15,7 +15,7 @@ A complete Docker Compose setup for automated media management with VPN protecti
 
 | Service | Description | Port |
 |---------|-------------|------|
-| **Gluetun** | VPN client (ProtonVPN) | 8080 (qBittorrent WebUI) |
+| **Gluetun** | VPN client (any provider) | 8080 (qBittorrent WebUI) |
 | **qBittorrent** | Torrent client (via VPN) | 8080 |
 | **Sonarr** | TV show management | 8989 |
 | **Radarr** | Movie management | 7878 |
@@ -30,7 +30,7 @@ A complete Docker Compose setup for automated media management with VPN protecti
 ### 1. Prerequisites
 
 - Docker and Docker Compose installed
-- ProtonVPN WireGuard credentials
+- VPN credentials for your chosen provider (optional - setup works without VPN too)
 - Sufficient storage mounted at `/mnt/media` (or configure `MEDIA_DIR`)
 
 ### 2. Setup
@@ -44,7 +44,7 @@ chmod +x bootstrap.sh
 ```
 
 The script will:
-1. Ask for your configuration (timezone, VPN credentials, ports, etc.)
+1. Ask for your configuration (timezone, VPN provider & credentials, ports, etc.)
 2. Auto-detect Docker GID
 3. Create `.env` file
 4. Set up directories
@@ -64,12 +64,12 @@ chmod +x bootstrap.sh
 ./bootstrap.sh
 ```
 
-**Required Configuration:**
-- `WG_PRIVATE_KEY`: Your ProtonVPN WireGuard private key
-- `WG_ADDRESS`: Your ProtonVPN WireGuard address (e.g., 10.2.0.2/32)
+**Required Configuration (if using VPN):**
+- `VPN_SERVICE_PROVIDER`: Your VPN provider (e.g., protonvpn, nordvpn, mullvad, etc.)
+- `VPN_TYPE`: VPN protocol type (e.g., wireguard, openvpn)
+- Provider-specific credentials (varies by provider - see Gluetun documentation)
 
 **Optional Configuration (has sensible defaults):**
-- `QB_USER` / `QB_PASS`: qBittorrent credentials (default: admin/adminadmin)
 - `DOCKER_GID`: Docker group GID (auto-detected)
 - `MEDIA_DIR`: Media storage location (default: /mnt/media)
 - `TZ`: Timezone (default: Europe/Stockholm)
@@ -102,10 +102,13 @@ PUID=1000
 PGID=1001
 MEDIA_DIR=/mnt/media
 
-# VPN configuration
+# VPN configuration (if USE_VPN=true)
+VPN_SERVICE_PROVIDER=protonvpn
+VPN_TYPE=wireguard
 SERVER_COUNTRIES=Sweden
-WG_PRIVATE_KEY=your_private_key
-WG_ADDRESS=your_wireguard_address
+# Provider-specific credentials (example for ProtonVPN WireGuard):
+WIREGUARD_PRIVATE_KEY=your_private_key
+WIREGUARD_ADDRESSES=your_wireguard_address
 
 # Service ports
 QBIT_WEBUI=8080
@@ -114,17 +117,37 @@ RADARR_PORT=7878
 # ... etc
 ```
 
-### ProtonVPN Setup
+### VPN Setup
 
-1. Get WireGuard credentials from ProtonVPN:
-   - Log in to ProtonVPN → Downloads → WireGuard configuration
-   - Copy the private key and IP address
+Gluetun supports all major VPN providers. Configuration varies by provider:
 
-2. Set in `.env`:
-   ```bash
-   WG_PRIVATE_KEY=your_private_key_here
-   WG_ADDRESS=10.2.0.2/32  # Example
-   ```
+**ProtonVPN (WireGuard example):**
+```bash
+VPN_SERVICE_PROVIDER=protonvpn
+VPN_TYPE=wireguard
+WIREGUARD_PRIVATE_KEY=your_private_key_here
+WIREGUARD_ADDRESSES=10.2.0.2/32
+SERVER_COUNTRIES=Sweden
+```
+
+**NordVPN (example):**
+```bash
+VPN_SERVICE_PROVIDER=nordvpn
+VPN_TYPE=wireguard
+WIREGUARD_PRIVATE_KEY=your_private_key_here
+SERVER_COUNTRIES=Sweden
+```
+
+**Mullvad (example):**
+```bash
+VPN_SERVICE_PROVIDER=mullvad
+VPN_TYPE=wireguard
+WIREGUARD_PRIVATE_KEY=your_private_key_here
+WIREGUARD_ADDRESSES=your_address
+SERVER_CITIES=Stockholm
+```
+
+For other providers and detailed configuration options, see the [Gluetun documentation](https://github.com/qdm12/gluetun-wiki)
 
 ## Health Dashboard
 

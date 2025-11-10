@@ -9,15 +9,23 @@ services:
       - "${QBIT_WEBUI}:8080"                    # qBittorrent WebUI to LAN
     environment:
       - TZ=${TZ}
-      - VPN_SERVICE_PROVIDER=protonvpn
-      - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=${WG_PRIVATE_KEY}
-      - WIREGUARD_ADDRESSES=${WG_ADDRESS}
-      - SERVER_FEATURES=port_forwarding
-      # Prefer selecting a P2P location. You can switch to SERVER_HOSTNAMES if you want to pin a single server.
+      # VPN Provider Configuration
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-protonvpn}
+      - VPN_TYPE=${VPN_TYPE:-wireguard}
+      # WireGuard credentials (if using WireGuard)
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+      # OpenVPN credentials (if using OpenVPN)
+      - OPENVPN_USER=${OPENVPN_USER}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      # Server selection (provider-specific)
       - SERVER_COUNTRIES=${SERVER_COUNTRIES}
       - SERVER_CITIES=${SERVER_CITIES}
-      - VPN_PORT_FORWARDING=on
+      - SERVER_HOSTNAMES=${SERVER_HOSTNAMES}
+      # Port forwarding configuration
+      - VPN_PORT_FORWARDING=${VPN_PORT_FORWARDING:-on}
+      - PORT_FORWARDING_PROVIDER=${PORT_FORWARDING_PROVIDER}
+      # Firewall configuration
       - FIREWALL_INPUT_PORTS=${QBIT_WEBUI}      # keep WebUI reachable on LAN
       - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNET} # allow talking to LAN services
     volumes:

@@ -67,6 +67,24 @@ configure_env() {
 
   if [[ "$USE_VPN" =~ ^[Yy]$ ]]; then
     USE_VPN=true
+
+    echo ""
+    echo "Gluetun supports many VPN providers. Common options:"
+    echo "  - protonvpn"
+    echo "  - nordvpn"
+    echo "  - mullvad"
+    echo "  - expressvpn"
+    echo "  - surfshark"
+    echo "  - purevpn"
+    echo "  - privateinternetaccess"
+    echo "(See https://github.com/qdm12/gluetun-wiki for full list)"
+    echo ""
+    read -p "VPN provider (default: protonvpn): " VPN_SERVICE_PROVIDER
+    VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-protonvpn}
+
+    read -p "VPN type [wireguard/openvpn] (default: wireguard): " VPN_TYPE
+    VPN_TYPE=${VPN_TYPE:-wireguard}
+
     read -p "VPN server country (default: Sweden): " SERVER_COUNTRIES
     SERVER_COUNTRIES=${SERVER_COUNTRIES:-Sweden}
 
@@ -74,18 +92,28 @@ configure_env() {
     SERVER_CITIES=${SERVER_CITIES:-Stockholm}
 
     echo ""
-    echo "Enter your ProtonVPN WireGuard credentials"
-    echo "(Get from: ProtonVPN → Downloads → WireGuard configuration)"
-    read -sp "WireGuard Private Key: " WG_PRIVATE_KEY
-    echo ""
+    echo "Enter your VPN credentials"
+    echo "Note: Credential format varies by provider - consult Gluetun documentation"
 
-    read -p "WireGuard Address (e.g., 10.2.0.2/32): " WG_ADDRESS
+    if [[ "$VPN_TYPE" == "wireguard" ]]; then
+      read -sp "WireGuard Private Key: " WIREGUARD_PRIVATE_KEY
+      echo ""
+      read -p "WireGuard Address (e.g., 10.2.0.2/32, leave empty if not required): " WIREGUARD_ADDRESSES
+    else
+      read -p "OpenVPN Username: " OPENVPN_USER
+      read -sp "OpenVPN Password: " OPENVPN_PASSWORD
+      echo ""
+    fi
   else
     USE_VPN=false
+    VPN_SERVICE_PROVIDER=""
+    VPN_TYPE=""
     SERVER_COUNTRIES=""
     SERVER_CITIES=""
-    WG_PRIVATE_KEY=""
-    WG_ADDRESS=""
+    WIREGUARD_PRIVATE_KEY=""
+    WIREGUARD_ADDRESSES=""
+    OPENVPN_USER=""
+    OPENVPN_PASSWORD=""
   fi
 
   echo ""
@@ -114,6 +142,16 @@ configure_env() {
   # Auto-detect project name from directory
   DETECTED_PROJECT_NAME=$(basename "$(pwd)")
 
+  # Set defaults for any unset VPN variables to avoid unbound variable errors
+  : ${VPN_SERVICE_PROVIDER:=}
+  : ${VPN_TYPE:=}
+  : ${SERVER_COUNTRIES:=}
+  : ${SERVER_CITIES:=}
+  : ${WIREGUARD_PRIVATE_KEY:=}
+  : ${WIREGUARD_ADDRESSES:=}
+  : ${OPENVPN_USER:=}
+  : ${OPENVPN_PASSWORD:=}
+
   # Write .env file
   if [ "$DRY_RUN" = true ]; then
     echo "[DRY RUN] Would write to .env:"
@@ -141,16 +179,22 @@ QBIT_WEBUI=${QBIT_WEBUI}
 # VPN Configuration
 USE_VPN=${USE_VPN}
 
-# Proton VPN selection (only used if USE_VPN=true)
-# Prefer P2P locations. You can switch to SERVER_HOSTNAMES to pin a server.
+# VPN Provider Configuration (only used if USE_VPN=true)
+# See https://github.com/qdm12/gluetun-wiki for all supported providers
+VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}
+VPN_TYPE=${VPN_TYPE}
+
+# Server selection (only used if USE_VPN=true)
 SERVER_COUNTRIES=${SERVER_COUNTRIES}
 SERVER_CITIES=${SERVER_CITIES}
-# Example if you want to pin a server instead of country/city:
+# To pin a specific server hostname:
 # SERVER_HOSTNAMES=se-41.protonvpn.net
 
-# Proton WireGuard from your config (only used if USE_VPN=true)
-WG_PRIVATE_KEY=${WG_PRIVATE_KEY}
-WG_ADDRESS=${WG_ADDRESS}
+# VPN Credentials (only used if USE_VPN=true, provider-specific)
+WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+OPENVPN_USER=${OPENVPN_USER}
+OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
 
 # Service Ports
 PROWLARR_PORT=${PROWLARR_PORT}
@@ -201,6 +245,16 @@ fi
 set -a
 source .env
 set +a
+
+# Set defaults for optional VPN variables to avoid unbound variable errors
+: ${VPN_SERVICE_PROVIDER:=}
+: ${VPN_TYPE:=}
+: ${SERVER_COUNTRIES:=}
+: ${SERVER_CITIES:=}
+: ${WIREGUARD_PRIVATE_KEY:=}
+: ${WIREGUARD_ADDRESSES:=}
+: ${OPENVPN_USER:=}
+: ${OPENVPN_PASSWORD:=}
 
 # Auto-detect Docker GID if not set in .env
 if [ -z "${DOCKER_GID:-}" ]; then
