@@ -121,6 +121,12 @@ RADARR_PORT=7878
 
 Gluetun supports all major VPN providers. Configuration varies by provider:
 
+**Important Notes:**
+- Not all VPN providers support port forwarding. Check with your provider before enabling VPN.
+- Even if your provider supports port forwarding, not all servers may support it.
+- Without port forwarding, you may experience reduced torrent performance (seeding/downloading speeds).
+- If your provider doesn't support port forwarding, consider disabling VPN by setting `USE_VPN=false` in your `.env` file.
+
 **ProtonVPN (WireGuard example):**
 ```bash
 VPN_SERVICE_PROVIDER=protonvpn

@@ -62,6 +62,12 @@ configure_env() {
 
   echo ""
   echo "--- VPN Configuration (Optional) ---"
+  echo ""
+  echo "IMPORTANT: Not all VPN providers support port forwarding!"
+  echo "  - Port forwarding is needed for optimal torrent performance"
+  echo "  - Check with your provider before enabling VPN"
+  echo "  - If unsure, you can disable VPN by answering 'n' below"
+  echo ""
   read -p "Use VPN (Gluetun) for qBittorrent? (Y/n): " USE_VPN
   USE_VPN=${USE_VPN:-Y}
 
