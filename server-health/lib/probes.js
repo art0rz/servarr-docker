@@ -146,6 +146,22 @@ export async function probeFlare(url) {
 }
 
 /**
+ * Probe Cross-Seed
+ */
+export async function probeCrossSeed(url) {
+  if (!url) return { name: "Cross-Seed", ok: false, reason: "container not found" };
+
+  const result = await httpGet(`${url}/api/ping`);
+  const ok = result.ok;
+
+  if (ok) {
+    return { name: "Cross-Seed", url, ok: true, version: "", http: 200 };
+  }
+
+  return { name: "Cross-Seed", url, ok: false, http: 0 };
+}
+
+/**
  * Probe Gluetun VPN gateway
  */
 export async function probeGluetun() {

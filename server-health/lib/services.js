@@ -12,6 +12,7 @@ const SERVICE_CONFIG = {
   radarr: { network: `${PROJECT}_media`, envPort: 'RADARR_PORT', defaultPort: 7878 },
   prowlarr: { network: `${PROJECT}_media`, envPort: 'PROWLARR_PORT', defaultPort: 9696 },
   bazarr: { network: `${PROJECT}_media`, envPort: 'BAZARR_PORT', defaultPort: 6767 },
+  'cross-seed': { network: `${PROJECT}_media`, envPort: 'CROSS_SEED_PORT', defaultPort: 2468 },
   flaresolverr: { network: `${PROJECT}_media`, envPort: 'FLARESOLVERR_PORT', defaultPort: 8191 },
   // Conditional configuration based on VPN usage
   ...(USE_VPN

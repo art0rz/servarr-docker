@@ -139,6 +139,9 @@ configure_env() {
   read -p "FlareSolverr port (default: 8191): " FLARESOLVERR_PORT
   FLARESOLVERR_PORT=${FLARESOLVERR_PORT:-8191}
 
+  read -p "Cross-Seed port (default: 2468): " CROSS_SEED_PORT
+  CROSS_SEED_PORT=${CROSS_SEED_PORT:-2468}
+
   read -p "Health dashboard port (default: 3000): " HEALTH_PORT
   HEALTH_PORT=${HEALTH_PORT:-3000}
 
@@ -208,6 +211,7 @@ SONARR_PORT=${SONARR_PORT}
 RADARR_PORT=${RADARR_PORT}
 BAZARR_PORT=${BAZARR_PORT}
 FLARESOLVERR_PORT=${FLARESOLVERR_PORT}
+CROSS_SEED_PORT=${CROSS_SEED_PORT}
 HEALTH_PORT=${HEALTH_PORT}
 
 # Health Server Configuration
@@ -274,9 +278,9 @@ fi
 
 # Create config directories
 if [ "$DRY_RUN" = true ]; then
-  echo "[DRY RUN] Would create config directories: config/{qbittorrent,prowlarr,sonarr,radarr,bazarr}"
+  echo "[DRY RUN] Would create config directories: config/{qbittorrent,prowlarr,sonarr,radarr,bazarr,cross-seed}"
 else
-  mkdir -p config/{qbittorrent,prowlarr,sonarr,radarr,bazarr}
+  mkdir -p config/{qbittorrent,prowlarr,sonarr,radarr,bazarr,cross-seed}
   echo "✓ Created config directories"
 fi
 
@@ -291,7 +295,7 @@ if [ "$DRY_RUN" = true ]; then
   echo "[DRY RUN] Would run: sudo chown -R ${PUID}:${PGID} ${MEDIA_DIR}"
 else
   echo "Creating media directories at ${MEDIA_DIR}..."
-  sudo mkdir -p "${MEDIA_DIR}"/{downloads/{incomplete,completed},tv,movies}
+  sudo mkdir -p "${MEDIA_DIR}"/{downloads/{incomplete,completed,cross-seeds},tv,movies}
   sudo chown -R "${PUID}:${PGID}" "${MEDIA_DIR}"
   echo "✓ Created media directories"
 fi
@@ -436,4 +440,20 @@ else
   echo "  Radarr: http://localhost:${RADARR_PORT:-7878}"
   echo "  Prowlarr: http://localhost:${PROWLARR_PORT:-9696}"
   echo "  Bazarr: http://localhost:${BAZARR_PORT:-6767}"
+  echo "  Cross-Seed: http://localhost:${CROSS_SEED_PORT:-2468}"
+  echo ""
+  echo "================================================================"
+  echo "IMPORTANT: Cross-Seed Configuration Required!"
+  echo "================================================================"
+  echo "Cross-Seed needs indexers configured to find cross-seeds."
+  echo ""
+  echo "1. Edit: ./config/cross-seed/config.js"
+  echo "2. Add your Prowlarr Torznab feeds to the 'torznab' array"
+  echo "3. Restart: docker restart cross-seed"
+  echo ""
+  echo "Configuration guide:"
+  echo "  https://www.cross-seed.org/docs/basics/options"
+  echo ""
+  echo "See README.md for detailed setup instructions."
+  echo "================================================================"
 fi

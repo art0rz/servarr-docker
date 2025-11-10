@@ -7,6 +7,7 @@ A complete Docker Compose setup for automated media management with VPN protecti
 - **VPN Protection**: All torrent traffic routed through Gluetun VPN gateway (supports all major VPN providers)
 - **Automatic Port Forwarding**: Syncs VPN forwarded port to qBittorrent
 - **Media Management**: Sonarr, Radarr, Prowlarr, Bazarr for automated downloads
+- **Cross-Seeding**: Automatically finds and adds cross-seeds from your existing torrents
 - **Captcha Solving**: FlareSolverr for indexer sites
 - **Health Monitoring**: Real-time dashboard showing service status, VPN health, and egress IPs
 - **Auto-Updates**: Watchtower keeps containers up to date
@@ -21,6 +22,7 @@ A complete Docker Compose setup for automated media management with VPN protecti
 | **Radarr** | Movie management | 7878 |
 | **Prowlarr** | Indexer manager | 9696 |
 | **Bazarr** | Subtitle management | 6767 |
+| **Cross-Seed** | Automatic cross-seeding | 2468 |
 | **FlareSolverr** | Cloudflare bypass | 8191 |
 | **Health Server** | Monitoring dashboard | 3000 |
 | **Watchtower** | Auto-updates containers | - |
@@ -154,6 +156,55 @@ SERVER_CITIES=Stockholm
 ```
 
 For other providers and detailed configuration options, see the [Gluetun documentation](https://github.com/qdm12/gluetun-wiki)
+
+## Cross-Seed Configuration
+
+Cross-Seed automatically searches your indexers for cross-seeds of your existing torrents, helping you maintain better ratios and support the torrent ecosystem.
+
+**Configuration File Location**: `./config/cross-seed/config.js`
+**Documentation**: https://www.cross-seed.org/docs/basics/options
+
+### Initial Setup
+
+Cross-seed is pre-configured to work with qBittorrent, Sonarr, and Radarr automatically.
+
+**⚠️ Important: You must configure indexers for cross-seed to work!**
+
+1. **Configure Cross-Seed indexers**:
+   - Edit `./config/cross-seed/config.js`
+   - Get your Prowlarr API key from Prowlarr → Settings → General
+   - Add your Prowlarr Torznab feeds to the `torznab` array:
+     ```javascript
+     torznab: [
+         "http://prowlarr:9696/1/api?apikey=YOUR_PROWLARR_API_KEY",
+         "http://prowlarr:9696/2/api?apikey=YOUR_PROWLARR_API_KEY",
+     ],
+     ```
+   - Each number (1, 2, etc.) represents an indexer ID in Prowlarr
+   - Find indexer IDs in Prowlarr → Indexers (hover over the Torznab feed icon)
+   - **Full configuration options**: https://www.cross-seed.org/docs/basics/options
+
+2. **Restart Cross-Seed**:
+   ```bash
+   docker restart cross-seed
+   ```
+
+3. **Verify it's working**:
+   - Check logs: `docker logs cross-seed`
+   - Look for: `[search] Found X cross seeds from Y original torrents`
+
+4. **Monitor via Web UI** (optional):
+   - Access at `http://localhost:2468`
+   - Default API key is auto-generated, check with: `docker exec cross-seed cross-seed api-key`
+
+### Key Configuration Options
+
+- **Delay**: Time to wait before searching for cross-seeds (recommend 30+ seconds)
+- **Action**: Choose "inject" to automatically add cross-seeds to qBittorrent
+- **Duplicate Categories**: Organize cross-seeds with categories in qBittorrent
+- **Search Cadence**: How often to search for new cross-seeds (e.g., daily)
+
+See the [Cross-Seed documentation](https://cross-seed.org/) for detailed configuration options.
 
 ## Health Dashboard
 

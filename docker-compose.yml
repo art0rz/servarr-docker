@@ -207,6 +207,30 @@ services:
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
+  cross-seed:
+    image: crossseed/cross-seed:latest
+    container_name: cross-seed
+    networks:
+      - default
+      - media
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/cross-seed:/config
+      - ${MEDIA_DIR}/downloads/completed:/torrents:ro
+      - ${MEDIA_DIR}/downloads/cross-seeds:/cross-seeds
+      - ${MEDIA_DIR}:${MEDIA_DIR}:rshared
+    ports:
+      - "${CROSS_SEED_PORT:-2468}:2468"
+    restart: unless-stopped
+    depends_on:
+      - prowlarr
+    command: daemon
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
     container_name: flaresolverr
@@ -253,6 +277,7 @@ services:
       - RADARR_PORT=${RADARR_PORT:-7878}
       - PROWLARR_PORT=${PROWLARR_PORT:-9696}
       - BAZARR_PORT=${BAZARR_PORT:-6767}
+      - CROSS_SEED_PORT=${CROSS_SEED_PORT:-2468}
       - FLARESOLVERR_PORT=${FLARESOLVERR_PORT:-8191}
       - QBIT_WEBUI=${QBIT_WEBUI:-8080}
     volumes:

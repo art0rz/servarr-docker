@@ -12,7 +12,8 @@ import {
   probeProwlarr,
   probeBazarr,
   probeQbit,
-  probeFlare
+  probeFlare,
+  probeCrossSeed
 } from "./lib/probes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -45,6 +46,7 @@ app.get("/api/health", async (_req, res) => {
         probeProwlarr(urls.prowlarr),
         probeBazarr(urls.bazarr),
         probeQbit(urls.gluetun),
+        probeCrossSeed(urls['cross-seed']),
         probeFlare(urls.flaresolverr)
       ]);
 
@@ -72,6 +74,7 @@ app.get("/api/health", async (_req, res) => {
         probeProwlarr(urls.prowlarr),
         probeBazarr(urls.bazarr),
         probeQbit(urls.qbittorrent),
+        probeCrossSeed(urls['cross-seed']),
         probeFlare(urls.flaresolverr)
       ]);
 
