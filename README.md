@@ -262,6 +262,146 @@ Recyclarr automatically syncs TRaSH guides to Sonarr and Radarr, providing optim
 
 **Documentation**: https://recyclarr.dev/
 
+## Service Configuration Guide
+
+After running the bootstrap script, follow these steps to configure all services to work together:
+
+### 1. Configure Prowlarr (Indexer Manager)
+
+1. Open Prowlarr at `http://localhost:9696`
+2. Add your indexers:
+   - Go to **Indexers** → **Add Indexer**
+   - Search for and add your preferred torrent indexers
+   - Configure each with your credentials/API keys
+3. Copy your Prowlarr API key:
+   - Go to **Settings** → **General**
+   - Copy the **API Key** (you'll need this for other services)
+
+### 2. Configure Sonarr (TV Shows)
+
+1. Open Sonarr at `http://localhost:8989`
+
+2. **Add Prowlarr as indexer source:**
+   - Go to **Settings** → **Indexers** → **Add** → **Prowlarr**
+   - **Prowlarr Server**: `http://prowlarr:9696`
+   - **API Key**: (paste from Prowlarr)
+   - **Sync Categories**: TV (default)
+   - Click **Test** then **Save**
+
+3. **Add qBittorrent as download client:**
+   - Go to **Settings** → **Download Clients** → **Add** → **qBittorrent**
+   - **Host**: `qbittorrent` (or `gluetun` if using VPN)
+   - **Port**: `8080`
+   - **Category**: `tv` (recommended)
+   - Click **Test** then **Save**
+
+4. **Configure media paths:**
+   - Go to **Settings** → **Media Management**
+   - Enable **Show Advanced**
+   - **Root Folder**: Add `/mnt/media/tv` (or your `MEDIA_DIR/tv`)
+   - Configure naming, permissions, and import settings
+
+5. **Whitelist Docker networks** (for health monitoring):
+   - Go to **Settings** → **General** → **Security**
+   - **Authentication**: Required
+   - **IP Addresses Whitelist**: Add `172.18.0.0/16,172.19.0.0/16`
+
+### 3. Configure Radarr (Movies)
+
+1. Open Radarr at `http://localhost:7878`
+
+2. **Add Prowlarr as indexer source:**
+   - Go to **Settings** → **Indexers** → **Add** → **Prowlarr**
+   - **Prowlarr Server**: `http://prowlarr:9696`
+   - **API Key**: (paste from Prowlarr)
+   - **Sync Categories**: Movies (default)
+   - Click **Test** then **Save**
+
+3. **Add qBittorrent as download client:**
+   - Go to **Settings** → **Download Clients** → **Add** → **qBittorrent**
+   - **Host**: `qbittorrent` (or `gluetun` if using VPN)
+   - **Port**: `8080`
+   - **Category**: `movies` (recommended)
+   - Click **Test** then **Save**
+
+4. **Configure media paths:**
+   - Go to **Settings** → **Media Management**
+   - Enable **Show Advanced**
+   - **Root Folder**: Add `/mnt/media/movies` (or your `MEDIA_DIR/movies`)
+   - Configure naming, permissions, and import settings
+
+5. **Whitelist Docker networks** (for health monitoring):
+   - Go to **Settings** → **General** → **Security**
+   - **Authentication**: Required
+   - **IP Addresses Whitelist**: Add `172.18.0.0/16,172.19.0.0/16`
+
+### 4. Configure Bazarr (Subtitles)
+
+1. Open Bazarr at `http://localhost:6767`
+
+2. **Add Sonarr:**
+   - Go to **Settings** → **Sonarr**
+   - **Enabled**: Yes
+   - **Address**: `http://sonarr:8989`
+   - **API Key**: (from Sonarr → Settings → General)
+   - Click **Test** then **Save**
+
+3. **Add Radarr:**
+   - Go to **Settings** → **Radarr**
+   - **Enabled**: Yes
+   - **Address**: `http://radarr:7878`
+   - **API Key**: (from Radarr → Settings → General)
+   - Click **Test** then **Save**
+
+4. **Configure subtitle providers:**
+   - Go to **Settings** → **Providers**
+   - Add your preferred subtitle providers (OpenSubtitles, Subscene, etc.)
+   - Configure languages and filters
+
+### 5. Configure qBittorrent
+
+1. Open qBittorrent at `http://localhost:8080`
+   - Use the temporary credentials shown in bootstrap output (if first time)
+   - Or access without auth from localhost/LAN (auth bypass is enabled)
+
+2. **Configure categories** (optional but recommended):
+   - Go to **Settings** → **Downloads**
+   - **Default Save Path**: `/mnt/media/downloads/completed`
+   - **Category paths**:
+     - `tv`: `/mnt/media/downloads/completed/tv`
+     - `movies`: `/mnt/media/downloads/completed/movies`
+
+3. **Authentication bypass is pre-configured** for:
+   - Localhost (127.0.0.1)
+   - Docker networks (172.18.0.0/16, 172.19.0.0/16)
+   - LAN subnet (configured during bootstrap)
+
+### 6. Configure Cross-Seed
+
+See the [Cross-Seed Configuration](#cross-seed-configuration) section above for detailed setup.
+
+**Quick steps:**
+1. Edit `./config/cross-seed/config.js`
+2. Add Prowlarr Torznab feeds to the `torznab` array
+3. Restart: `docker restart cross-seed`
+
+### 7. Configure Recyclarr (Optional)
+
+See the [Recyclarr Configuration](#recyclarr-configuration) section above for detailed setup.
+
+**Quick steps:**
+1. Edit `./config/recyclarr/recyclarr.yml`
+2. Add Sonarr/Radarr API keys
+3. Select TRaSH guide templates
+4. Run: `docker exec recyclarr recyclarr sync`
+
+### Important Notes
+
+- **Container Names**: When configuring services to talk to each other, always use container names (e.g., `http://sonarr:8989`) instead of `localhost`
+- **Docker Networks**: The media network allows all *arr services to communicate
+- **VPN Configuration**: If using VPN, qBittorrent is accessible via the `gluetun` container name
+- **Authentication**: Docker network whitelisting allows services to communicate without authentication while still protecting external access
+
 ## Health Dashboard
 
 Access the health monitoring dashboard at `http://localhost:3000`
