@@ -278,9 +278,9 @@ fi
 
 # Create config directories
 if [ "$DRY_RUN" = true ]; then
-  echo "[DRY RUN] Would create config directories: config/{qbittorrent,prowlarr,sonarr,radarr,bazarr,cross-seed}"
+  echo "[DRY RUN] Would create config directories: config/{qbittorrent,prowlarr,sonarr,radarr,bazarr,cross-seed,recyclarr}"
 else
-  mkdir -p config/{qbittorrent,prowlarr,sonarr,radarr,bazarr,cross-seed}
+  mkdir -p config/{qbittorrent,prowlarr,sonarr,radarr,bazarr,cross-seed,recyclarr}
   echo "✓ Created config directories"
 fi
 
@@ -298,6 +298,13 @@ else
   sudo mkdir -p "${MEDIA_DIR}"/{downloads/{incomplete,completed,cross-seeds},tv,movies}
   sudo chown -R "${PUID}:${PGID}" "${MEDIA_DIR}"
   echo "✓ Created media directories"
+fi
+
+# Fix config directory permissions
+if [ "$DRY_RUN" = false ]; then
+  echo "Fixing config directory permissions..."
+  sudo chown -R "${PUID}:${PGID}" config/
+  echo "✓ Fixed config permissions"
 fi
 
 # Pull and start services

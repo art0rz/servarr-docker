@@ -193,8 +193,11 @@
       if (typeof service.total === 'number') extras.push(`Torrents: ${service.total}`);
       if (typeof service.sessions === 'number') extras.push(`Sessions: ${service.sessions}`);
 
+      // Add detail field if present (e.g., error count for recyclarr)
+      if (service.detail) extras.push(service.detail);
+
       return `
-        <div class="card">
+        <div class="card" style="${!ok ? 'border-color: #f85149;' : ''}">
           <div class="status ${ok ? 'ok' : 'fail'}">
             ${ok ? 'OK' : 'FAIL'}
           </div>
@@ -203,7 +206,7 @@
             <a href="${service.url}" target="_blank" rel="noreferrer">${service.url}</a>
           </div>` : ''}
           ${extras.length > 0 ? `<div class="tag">${extras.join(' • ')}</div>` : ''}
-          ${service.reason ? `<div class="tag">Reason: ${escapeHtml(service.reason)}</div>` : ''}
+          ${service.reason ? `<div class="tag" style="color: #f85149;">Reason: ${escapeHtml(service.reason)}</div>` : ''}
         </div>
       `;
     }

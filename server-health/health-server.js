@@ -13,7 +13,8 @@ import {
   probeBazarr,
   probeQbit,
   probeFlare,
-  probeCrossSeed
+  probeCrossSeed,
+  probeRecyclarr
 } from "./lib/probes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -47,7 +48,8 @@ app.get("/api/health", async (_req, res) => {
         probeBazarr(urls.bazarr),
         probeQbit(urls.gluetun),
         probeCrossSeed(urls['cross-seed']),
-        probeFlare(urls.flaresolverr)
+        probeFlare(urls.flaresolverr),
+        probeRecyclarr()
       ]);
 
       vpn = vpnProbe;
@@ -75,7 +77,8 @@ app.get("/api/health", async (_req, res) => {
         probeBazarr(urls.bazarr),
         probeQbit(urls.qbittorrent),
         probeCrossSeed(urls['cross-seed']),
-        probeFlare(urls.flaresolverr)
+        probeFlare(urls.flaresolverr),
+        probeRecyclarr()
       ]);
 
       vpn = { name: "VPN", ok: false, running: false, healthy: null };

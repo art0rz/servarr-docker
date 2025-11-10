@@ -8,6 +8,7 @@ A complete Docker Compose setup for automated media management with VPN protecti
 - **Automatic Port Forwarding**: Syncs VPN forwarded port to qBittorrent
 - **Media Management**: Sonarr, Radarr, Prowlarr, Bazarr for automated downloads
 - **Cross-Seeding**: Automatically finds and adds cross-seeds from your existing torrents
+- **TRaSH Guides Integration**: Recyclarr syncs optimal quality profiles and custom formats
 - **Captcha Solving**: FlareSolverr for indexer sites
 - **Health Monitoring**: Real-time dashboard showing service status, VPN health, and egress IPs
 - **Auto-Updates**: Watchtower keeps containers up to date
@@ -23,6 +24,7 @@ A complete Docker Compose setup for automated media management with VPN protecti
 | **Prowlarr** | Indexer manager | 9696 |
 | **Bazarr** | Subtitle management | 6767 |
 | **Cross-Seed** | Automatic cross-seeding | 2468 |
+| **Recyclarr** | TRaSH guides sync | - |
 | **FlareSolverr** | Cloudflare bypass | 8191 |
 | **Health Server** | Monitoring dashboard | 3000 |
 | **Watchtower** | Auto-updates containers | - |
@@ -205,6 +207,60 @@ Cross-seed is pre-configured to work with qBittorrent, Sonarr, and Radarr automa
 - **Search Cadence**: How often to search for new cross-seeds (e.g., daily)
 
 See the [Cross-Seed documentation](https://cross-seed.org/) for detailed configuration options.
+
+## Recyclarr Configuration
+
+Recyclarr automatically syncs TRaSH guides to Sonarr and Radarr, providing optimal quality profiles, custom formats, and naming schemes.
+
+### Initial Setup
+
+1. **Create configuration file**:
+   ```bash
+   docker exec recyclarr recyclarr config create
+   ```
+
+2. **Edit the configuration**:
+   - File location: `./config/recyclarr/recyclarr.yml`
+   - Add your Sonarr/Radarr instances with API keys
+   - Select which TRaSH guide templates to use
+
+3. **Example configuration**:
+   ```yaml
+   sonarr:
+     main:
+       base_url: http://sonarr:8989
+       api_key: YOUR_SONARR_API_KEY
+       quality_definition:
+         type: series
+       custom_formats:
+         - trash_ids:
+             - EBC725268D687D588A20CBC5F97E538B  # x265
+
+   radarr:
+     main:
+       base_url: http://radarr:7878
+       api_key: YOUR_RADARR_API_KEY
+       quality_definition:
+         type: movie
+       custom_formats:
+         - trash_ids:
+             - 496f355514737f7d83bf7aa4d24f8169  # TrueHD Atmos
+   ```
+
+4. **Run sync manually**:
+   ```bash
+   docker exec recyclarr recyclarr sync
+   ```
+
+5. **Automated syncing**:
+   - Set up a cron job or use the built-in scheduler
+   - Add to `recyclarr.yml`:
+     ```yaml
+     schedules:
+       - cron: "0 5 * * *"  # Daily at 5 AM
+     ```
+
+**Documentation**: https://recyclarr.dev/
 
 ## Health Dashboard
 

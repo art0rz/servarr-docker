@@ -204,3 +204,48 @@ export async function probeQbitEgress() {
     vpnEgress: ip || "",
   };
 }
+
+/**
+ * Probe Recyclarr by checking Docker logs
+ */
+export async function probeRecyclarr() {
+  const name = "Recyclarr";
+
+  // Check if container is running
+  const running = await dockerInspect(".State.Running", "recyclarr");
+  if (running !== true) {
+    return { name, ok: false, reason: "container not running" };
+  }
+
+  // Get logs from last 24 hours using since flag
+  const logs = await cmd(`docker logs recyclarr --since 24h 2>&1`);
+
+  if (!logs.ok) {
+    return { name, ok: false, reason: "failed to read logs" };
+  }
+
+  // Count errors in last 24h
+  const logLines = logs.out.split('\n');
+  const errorLines = logLines.filter(line => {
+    const lower = line.toLowerCase();
+    return lower.includes("[err]") || (lower.includes("error") && !lower.includes("0 error"));
+  });
+  const errorCount = errorLines.length;
+
+  // Check for success indicators
+  const logText = logs.out.toLowerCase();
+  const hasSuccess = logText.includes("completed successfully") ||
+                     logText.includes("[inf]") ||
+                     logText.includes("starting cron");
+
+  // Consider healthy if running with success indicators and no errors
+  const ok = hasSuccess && errorCount === 0;
+
+  return {
+    name,
+    ok,
+    version: "",
+    http: 0,
+    detail: errorCount === 0 ? "no errors (24h)" : `${errorCount} error${errorCount !== 1 ? 's' : ''} (24h)`
+  };
+}
