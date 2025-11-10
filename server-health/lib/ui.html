@@ -227,21 +227,41 @@
         const response = await fetch('/api/health');
         const data = await response.json();
 
+        // Check if VPN is enabled
+        const vpnEnabled = data.vpn && data.vpn.running !== false;
+
         // Update summary
         document.getElementById('summary').innerHTML = renderSummary(data);
 
-        // Update VPN section
-        document.getElementById('vpn').innerHTML = renderVpnCard(data.vpn, data.qbitEgress);
+        // Update VPN section - hide if VPN is disabled
+        const vpnSection = document.querySelector('h2:nth-of-type(1)');
+        const vpnDiv = document.getElementById('vpn');
+        if (vpnEnabled) {
+          vpnSection.style.display = 'block';
+          vpnDiv.style.display = 'grid';
+          vpnDiv.innerHTML = renderVpnCard(data.vpn, data.qbitEgress);
+        } else {
+          vpnSection.style.display = 'none';
+          vpnDiv.style.display = 'none';
+        }
 
         // Update services section
         const services = (data.services || []).map(renderServiceCard).join('');
         document.getElementById('services').innerHTML = services ||
           '<div class="empty">No services found</div>';
 
-        // Update checks section
-        const checks = (data.checks || []).map(renderCheckCard).join('');
-        document.getElementById('checks').innerHTML = checks ||
-          '<div class="empty">No checks configured</div>';
+        // Update checks section - hide if VPN is disabled
+        const checksSection = document.querySelector('h2:nth-of-type(3)');
+        const checksDiv = document.getElementById('checks');
+        if (vpnEnabled) {
+          checksSection.style.display = 'block';
+          checksDiv.style.display = 'grid';
+          const checks = (data.checks || []).map(renderCheckCard).join('');
+          checksDiv.innerHTML = checks || '<div class="empty">No checks configured</div>';
+        } else {
+          checksSection.style.display = 'none';
+          checksDiv.style.display = 'none';
+        }
 
       } catch (error) {
         console.error('Failed to load health data:', error);

@@ -2,6 +2,7 @@ import { getContainerIP } from './docker.js';
 
 // Get project name from environment (Docker Compose sets this)
 const PROJECT = process.env.COMPOSE_PROJECT_NAME || 'servarr';
+const USE_VPN = process.env.USE_VPN === 'true';
 
 /**
  * Service configuration with default ports
@@ -12,7 +13,11 @@ const SERVICE_CONFIG = {
   prowlarr: { network: `${PROJECT}_media`, envPort: 'PROWLARR_PORT', defaultPort: 9696 },
   bazarr: { network: `${PROJECT}_media`, envPort: 'BAZARR_PORT', defaultPort: 6767 },
   flaresolverr: { network: `${PROJECT}_media`, envPort: 'FLARESOLVERR_PORT', defaultPort: 8191 },
-  gluetun: { network: `${PROJECT}_default`, envPort: 'QBIT_WEBUI', defaultPort: 8080 },
+  // Conditional configuration based on VPN usage
+  ...(USE_VPN
+    ? { gluetun: { network: `${PROJECT}_default`, envPort: 'QBIT_WEBUI', defaultPort: 8080 } }
+    : { qbittorrent: { network: `${PROJECT}_media`, envPort: 'QBIT_WEBUI', defaultPort: 8080 } }
+  ),
 };
 
 /**

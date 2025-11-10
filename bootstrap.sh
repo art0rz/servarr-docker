@@ -14,9 +14,18 @@ configure_env() {
   echo "=== Servarr Stack Configuration ==="
   echo ""
 
+  # Auto-detect timezone
+  if [ -f /etc/timezone ]; then
+    DETECTED_TZ=$(cat /etc/timezone)
+  elif [ -L /etc/localtime ]; then
+    DETECTED_TZ=$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')
+  else
+    DETECTED_TZ="UTC"
+  fi
+
   # Basic settings
-  read -p "Timezone (default: Europe/Stockholm): " TZ
-  TZ=${TZ:-Europe/Stockholm}
+  read -p "Timezone (default: ${DETECTED_TZ}): " TZ
+  TZ=${TZ:-${DETECTED_TZ}}
 
   read -p "User ID/PUID (default: 1000): " PUID
   PUID=${PUID:-1000}
@@ -51,28 +60,33 @@ configure_env() {
   read -p "qBittorrent WebUI port (default: 8080): " QBIT_WEBUI
   QBIT_WEBUI=${QBIT_WEBUI:-8080}
 
-  read -p "qBittorrent username (default: admin): " QB_USER
-  QB_USER=${QB_USER:-admin}
-
-  read -sp "qBittorrent password (default: adminadmin): " QB_PASS
-  QB_PASS=${QB_PASS:-adminadmin}
   echo ""
+  echo "--- VPN Configuration (Optional) ---"
+  read -p "Use VPN (Gluetun) for qBittorrent? (Y/n): " USE_VPN
+  USE_VPN=${USE_VPN:-Y}
 
-  echo ""
-  echo "--- ProtonVPN Configuration ---"
-  read -p "VPN server country (default: Sweden): " SERVER_COUNTRIES
-  SERVER_COUNTRIES=${SERVER_COUNTRIES:-Sweden}
+  if [[ "$USE_VPN" =~ ^[Yy]$ ]]; then
+    USE_VPN=true
+    read -p "VPN server country (default: Sweden): " SERVER_COUNTRIES
+    SERVER_COUNTRIES=${SERVER_COUNTRIES:-Sweden}
 
-  read -p "VPN server city (optional, default: Stockholm): " SERVER_CITIES
-  SERVER_CITIES=${SERVER_CITIES:-Stockholm}
+    read -p "VPN server city (optional, default: Stockholm): " SERVER_CITIES
+    SERVER_CITIES=${SERVER_CITIES:-Stockholm}
 
-  echo ""
-  echo "Enter your ProtonVPN WireGuard credentials"
-  echo "(Get from: ProtonVPN → Downloads → WireGuard configuration)"
-  read -sp "WireGuard Private Key: " WG_PRIVATE_KEY
-  echo ""
+    echo ""
+    echo "Enter your ProtonVPN WireGuard credentials"
+    echo "(Get from: ProtonVPN → Downloads → WireGuard configuration)"
+    read -sp "WireGuard Private Key: " WG_PRIVATE_KEY
+    echo ""
 
-  read -p "WireGuard Address (e.g., 10.2.0.2/32): " WG_ADDRESS
+    read -p "WireGuard Address (e.g., 10.2.0.2/32): " WG_ADDRESS
+  else
+    USE_VPN=false
+    SERVER_COUNTRIES=""
+    SERVER_CITIES=""
+    WG_PRIVATE_KEY=""
+    WG_ADDRESS=""
+  fi
 
   echo ""
   echo "--- Service Ports (press Enter for defaults) ---"
@@ -123,17 +137,18 @@ COMPOSE_PROJECT_NAME=${DETECTED_PROJECT_NAME}
 
 # qBittorrent Configuration
 QBIT_WEBUI=${QBIT_WEBUI}
-QB_USER=${QB_USER}
-QB_PASS=${QB_PASS}
 
-# Proton VPN selection
+# VPN Configuration
+USE_VPN=${USE_VPN}
+
+# Proton VPN selection (only used if USE_VPN=true)
 # Prefer P2P locations. You can switch to SERVER_HOSTNAMES to pin a server.
 SERVER_COUNTRIES=${SERVER_COUNTRIES}
 SERVER_CITIES=${SERVER_CITIES}
 # Example if you want to pin a server instead of country/city:
 # SERVER_HOSTNAMES=se-41.protonvpn.net
 
-# Proton WireGuard from your config
+# Proton WireGuard from your config (only used if USE_VPN=true)
 WG_PRIVATE_KEY=${WG_PRIVATE_KEY}
 WG_ADDRESS=${WG_ADDRESS}
 
@@ -224,22 +239,46 @@ fi
 # Pull and start services
 echo ""
 if [ "$DRY_RUN" = true ]; then
-  echo "[DRY RUN] Would run: docker compose pull"
-  echo "[DRY RUN] Would run: docker compose up -d"
+  echo "[DRY RUN] Would run: COMPOSE_PROFILES=vpn docker compose down"
+  echo "[DRY RUN] Would run: COMPOSE_PROFILES=no-vpn docker compose down"
+  echo "[DRY RUN] Would run: docker compose down --remove-orphans"
+  if [ "$USE_VPN" = "true" ]; then
+    echo "[DRY RUN] Would run: COMPOSE_PROFILES=vpn docker compose pull"
+    echo "[DRY RUN] Would run: COMPOSE_PROFILES=vpn docker compose up -d"
+  else
+    echo "[DRY RUN] Would run: COMPOSE_PROFILES=no-vpn docker compose pull"
+    echo "[DRY RUN] Would run: COMPOSE_PROFILES=no-vpn docker compose up -d"
+  fi
   echo "[DRY RUN] Would configure qBittorrent credentials"
   echo ""
   echo "=== DRY RUN COMPLETE ==="
   echo "No actual changes were made. To run for real, execute without --dry-run"
 else
+  # Stop and remove any existing containers from both profiles
+  echo "Stopping existing containers..."
+  COMPOSE_PROFILES=vpn docker compose down 2>/dev/null || true
+  COMPOSE_PROFILES=no-vpn docker compose down 2>/dev/null || true
+
+  # Also remove orphan containers that might conflict
+  docker compose down --remove-orphans 2>/dev/null || true
+
+  echo "Rebuilding health-server with current configuration..."
+  docker compose build health-server
+
   echo "Pulling Docker images..."
-  docker compose pull
+  if [ "$USE_VPN" = "true" ]; then
+    echo "Starting with VPN enabled..."
+    COMPOSE_PROFILES=vpn docker compose pull
+    COMPOSE_PROFILES=vpn docker compose up -d
+  else
+    echo "Starting without VPN..."
+    COMPOSE_PROFILES=no-vpn docker compose pull
+    COMPOSE_PROFILES=no-vpn docker compose up -d
+  fi
 
-  echo "Starting services..."
-  docker compose up -d
-
-  # Configure qBittorrent credentials if this is first run
+  # Configure qBittorrent authentication bypass
   echo ""
-  echo "Configuring qBittorrent credentials..."
+  echo "Configuring qBittorrent authentication bypass..."
 
   # Wait for qBittorrent to start and extract temporary credentials from logs
   QBIT_URL="http://localhost:${QBIT_WEBUI:-8080}"
@@ -265,14 +304,15 @@ else
   done
   echo ""
 
-  # Try to login and change credentials
-  echo "Setting qBittorrent credentials..."
+  # Try to login with temporary or default credentials
+  echo "Enabling authentication bypass..."
   COOKIE_JAR=$(mktemp)
   LOGIN_SUCCESS=false
 
   # Try temporary credentials first (newer qBittorrent versions)
   if [ -n "$TEMP_USER" ] && [ -n "$TEMP_PASS" ]; then
-    echo "Found temporary credentials in logs (username: $TEMP_USER)"
+    echo "Found temporary credentials in logs (username: $TEMP_USER, password: $TEMP_PASS)"
+    echo "Note: Use these credentials to login to qBittorrent WebUI at http://localhost:${QBIT_WEBUI}"
     if curl -s -c "$COOKIE_JAR" \
       -H "Referer: $QBIT_URL/" \
       -H "Origin: $QBIT_URL" \
@@ -290,35 +330,50 @@ else
       --data "username=admin&password=adminadmin" \
       "$QBIT_URL/api/v2/auth/login" | grep -q "Ok"; then
       LOGIN_SUCCESS=true
-      echo "Logged in with default credentials (admin:adminadmin)"
+      echo "Using default credentials (admin:adminadmin)"
     fi
   fi
 
-  # Update credentials if we successfully logged in
+  # Enable authentication bypass if we successfully logged in
   if [ "$LOGIN_SUCCESS" = true ]; then
-    echo "Updating to your configured credentials..."
+    echo "Enabling authentication bypass for localhost and LAN subnets..."
 
-    # Change the credentials
+    # Enable bypass for localhost and configure whitelist
     curl -s -b "$COOKIE_JAR" \
       -H "Referer: $QBIT_URL/" \
       -H "Origin: $QBIT_URL" \
       -H "Content-Type: application/x-www-form-urlencoded" \
-      --data-urlencode "json={\"web_ui_username\":\"${QB_USER}\",\"web_ui_password\":\"${QB_PASS}\"}" \
+      --data-urlencode "json={\"web_ui_address\":\"*\",\"web_ui_host_header_validation_enabled\":false,\"bypass_local_auth\":true,\"bypass_auth_subnet_whitelist_enabled\":true,\"bypass_auth_subnet_whitelist\":\"127.0.0.1/32\n172.18.0.0/16\n172.19.0.0/16\n${LAN_SUBNET}\"}" \
       "$QBIT_URL/api/v2/app/setPreferences" > /dev/null
 
-    echo "✓ qBittorrent credentials updated to: ${QB_USER}"
+    echo "✓ Authentication bypass enabled for:"
+    echo "  - Localhost (127.0.0.1)"
+    echo "  - Docker networks (172.18.0.0/16, 172.19.0.0/16)"
+    echo "  - LAN subnet (${LAN_SUBNET})"
   else
-    echo "qBittorrent already configured (could not login with temporary or default credentials)"
+    echo "Warning: Could not login to qBittorrent to configure authentication bypass"
+    echo "You may need to manually configure authentication bypass in the qBittorrent WebUI"
   fi
 
   rm -f "$COOKIE_JAR"
 
   echo ""
   echo "Setup complete!"
-  echo "Health dashboard: http://localhost:${HEALTH_PORT:-3000}"
-  echo "qBittorrent: http://localhost:${QBIT_WEBUI:-8080} (user: ${QB_USER})"
-  echo "Sonarr: http://localhost:${SONARR_PORT:-8989}"
-  echo "Radarr: http://localhost:${RADARR_PORT:-7878}"
-  echo "Prowlarr: http://localhost:${PROWLARR_PORT:-9696}"
-  echo "Bazarr: http://localhost:${BAZARR_PORT:-6767}"
+  echo ""
+  if [ -n "$TEMP_USER" ] && [ -n "$TEMP_PASS" ]; then
+    echo "qBittorrent temporary login credentials:"
+    echo "  Username: $TEMP_USER"
+    echo "  Password: $TEMP_PASS"
+    echo "  URL: http://localhost:${QBIT_WEBUI:-8080}"
+    echo ""
+    echo "IMPORTANT: Change your password after first login!"
+    echo ""
+  fi
+  echo "Service URLs:"
+  echo "  Health dashboard: http://localhost:${HEALTH_PORT:-3000}"
+  echo "  qBittorrent: http://localhost:${QBIT_WEBUI:-8080}"
+  echo "  Sonarr: http://localhost:${SONARR_PORT:-8989}"
+  echo "  Radarr: http://localhost:${RADARR_PORT:-7878}"
+  echo "  Prowlarr: http://localhost:${PROWLARR_PORT:-9696}"
+  echo "  Bazarr: http://localhost:${BAZARR_PORT:-6767}"
 fi

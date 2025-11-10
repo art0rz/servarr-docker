@@ -22,8 +22,10 @@ services:
       - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNET} # allow talking to LAN services
     volumes:
       - gluetun:/gluetun
+    profiles:
+      - vpn
 
-  qbittorrent:
+  qbittorrent-vpn:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
     network_mode: "service:gluetun"             # all qBit traffic exits via VPN
@@ -45,11 +47,39 @@ services:
       retries: 10
     labels:
       - com.centurylinklabs.watchtower.enable=true
+    profiles:
+      - vpn
+
+  qbittorrent-direct:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    networks: [media]
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=${QBIT_WEBUI}
+      - UMASK=002
+    volumes:
+      - ./config/qbittorrent:/config
+      - ${MEDIA_DIR}:${MEDIA_DIR}:rshared
+    ports:
+      - "${QBIT_WEBUI}:${QBIT_WEBUI}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:${QBIT_WEBUI}/"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    profiles:
+      - no-vpn
 
   pf-sync:
     image: alpine:3.20
     container_name: pf-sync
-    depends_on: [gluetun, qbittorrent]
+    depends_on: [gluetun, qbittorrent-vpn]
     restart: unless-stopped
     network_mode: "service:gluetun"             # share namespace with qBit
     environment:
@@ -83,6 +113,8 @@ services:
         fi
         sleep 30
       done
+    profiles:
+      - vpn
 
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
@@ -207,6 +239,7 @@ services:
     environment:
       - PORT=3000
       - TZ=${TZ}
+      - USE_VPN=${USE_VPN:-true}
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-servarr}
       - SONARR_PORT=${SONARR_PORT:-8989}
       - RADARR_PORT=${RADARR_PORT:-7878}
@@ -214,16 +247,12 @@ services:
       - BAZARR_PORT=${BAZARR_PORT:-6767}
       - FLARESOLVERR_PORT=${FLARESOLVERR_PORT:-8191}
       - QBIT_WEBUI=${QBIT_WEBUI:-8080}
-      - QB_USER=${QB_USER}
-      - QB_PASS=${QB_PASS}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     ports:
       - "${HEALTH_PORT:-3000}:3000"
     restart: unless-stopped
     depends_on:
-      - gluetun
-      - qbittorrent
       - sonarr
       - radarr
       - prowlarr

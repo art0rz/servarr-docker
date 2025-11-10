@@ -24,33 +24,63 @@ const PORT = process.env.PORT || 3000;
  */
 app.get("/api/health", async (_req, res) => {
   try {
+    const useVpn = process.env.USE_VPN === "true";
+
     // Discover service URLs from Docker
     const urls = await discoverServices();
 
-    // Run all probes in parallel
-    const [vpn, qbitEgress, ...services] = await Promise.all([
-      probeGluetun(),
-      probeQbitEgress(),
-      probeSonarr(urls.sonarr),
-      probeRadarr(urls.radarr),
-      probeProwlarr(urls.prowlarr),
-      probeBazarr(urls.bazarr),
-      probeQbit(urls.gluetun),
-      probeFlare(urls.flaresolverr)
-    ]);
+    // Run probes based on VPN configuration
+    let vpn = null;
+    let qbitEgress = null;
+    let checks = [];
+    let services = [];
 
-    // Build check results
-    const checks = [
-      { name: "gluetun running", ok: vpn.running, detail: vpn.healthy ? `health=${vpn.healthy}` : "" },
-      { name: "gluetun healthy", ok: vpn.healthy === "healthy", detail: `uiHostPort=${vpn.uiHostPort || ''}` },
-      {
-        name: "gluetun forwarded port",
-        ok: vpn.pfExpected ? /^\d+$/.test(vpn.forwardedPort || "") : true,
-        detail: vpn.pfExpected ? (vpn.forwardedPort || "pending") : "disabled"
-      },
-      { name: "qbittorrent egress via VPN", ok: !!qbitEgress.vpnEgress, detail: qbitEgress.vpnEgress || "" },
-      { name: "gluetun egress IP", ok: !!vpn.vpnEgress, detail: vpn.vpnEgress || "" },
-    ];
+    if (useVpn) {
+      // Run all probes including VPN
+      const [vpnProbe, qbitEgressProbe, ...serviceProbes] = await Promise.all([
+        probeGluetun(),
+        probeQbitEgress(),
+        probeSonarr(urls.sonarr),
+        probeRadarr(urls.radarr),
+        probeProwlarr(urls.prowlarr),
+        probeBazarr(urls.bazarr),
+        probeQbit(urls.gluetun),
+        probeFlare(urls.flaresolverr)
+      ]);
+
+      vpn = vpnProbe;
+      qbitEgress = qbitEgressProbe;
+      services = serviceProbes;
+
+      // Build check results with VPN checks
+      checks = [
+        { name: "gluetun running", ok: vpn.running, detail: vpn.healthy ? `health=${vpn.healthy}` : "" },
+        { name: "gluetun healthy", ok: vpn.healthy === "healthy", detail: `uiHostPort=${vpn.uiHostPort || ''}` },
+        {
+          name: "gluetun forwarded port",
+          ok: vpn.pfExpected ? /^\d+$/.test(vpn.forwardedPort || "") : true,
+          detail: vpn.pfExpected ? (vpn.forwardedPort || "pending") : "disabled"
+        },
+        { name: "qbittorrent egress via VPN", ok: !!qbitEgress.vpnEgress, detail: qbitEgress.vpnEgress || "" },
+        { name: "gluetun egress IP", ok: !!vpn.vpnEgress, detail: vpn.vpnEgress || "" },
+      ];
+    } else {
+      // Run probes without VPN
+      services = await Promise.all([
+        probeSonarr(urls.sonarr),
+        probeRadarr(urls.radarr),
+        probeProwlarr(urls.prowlarr),
+        probeBazarr(urls.bazarr),
+        probeQbit(urls.qbittorrent),
+        probeFlare(urls.flaresolverr)
+      ]);
+
+      vpn = { name: "VPN", ok: false, running: false, healthy: null };
+      qbitEgress = { name: "qBittorrent egress", ok: true, vpnEgress: "VPN disabled" };
+      checks = [
+        { name: "VPN status", ok: true, detail: "disabled (no VPN configured)" }
+      ];
+    }
 
     res.json({
       vpn,
