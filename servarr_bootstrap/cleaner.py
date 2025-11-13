@@ -7,12 +7,12 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Optional, Sequence
+from typing import Callable, Dict, Iterable, Optional, Sequence
 
 from .config import RuntimeContext
 
 LOGGER = logging.getLogger("servarr.bootstrap.clean")
-CommandRunner = Callable[[Sequence[str], Optional[Path]], None]
+CommandRunner = Callable[[Sequence[str], Optional[Path], Optional[Dict[str, str]]], None]
 
 
 class CleanError(RuntimeError):
@@ -121,14 +121,21 @@ def remove_virtualenv(venv_path: Path, *, dry_run: bool) -> None:
     shutil.rmtree(venv_path, ignore_errors=True)
 
 
-def run_command(cmd: Sequence[str], *, cwd: Optional[Path], dry_run: bool, runner: Optional[CommandRunner]) -> None:
+def run_command(
+    cmd: Sequence[str],
+    *,
+    cwd: Optional[Path],
+    dry_run: bool,
+    runner: Optional[CommandRunner],
+    env: Optional[Dict[str, str]] = None,
+) -> None:
     rendered = " ".join(cmd)
     LOGGER.info("Running command: %s", rendered)
     if dry_run:
         LOGGER.info("[dry-run] Skipping command execution")
         return
     if runner is not None:
-        runner(cmd, cwd)
+        runner(cmd, cwd, env)
         return
     try:
         completed = subprocess.run(
@@ -137,6 +144,7 @@ def run_command(cmd: Sequence[str], *, cwd: Optional[Path], dry_run: bool, runne
             check=True,
             capture_output=True,
             text=True,
+            env=env,
         )
         if completed.stdout:
             LOGGER.debug(completed.stdout.strip())

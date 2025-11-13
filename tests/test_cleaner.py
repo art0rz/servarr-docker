@@ -36,8 +36,8 @@ class CleanerTests(unittest.TestCase):
 
             commands = []
 
-            def fake_runner(cmd, cwd):
-                commands.append((tuple(cmd), cwd))
+            def fake_runner(cmd, cwd, env):
+                commands.append((tuple(cmd), cwd, env))
 
             runtime = make_runtime()
             plan = CleanPlan(remove_logs=True, remove_venv=True)
@@ -75,7 +75,7 @@ class CleanerTests(unittest.TestCase):
                 runtime=runtime,
                 plan=plan,
                 current_log=None,
-                command_runner=lambda cmd, cwd: None,
+                command_runner=lambda cmd, cwd, env: None,
             )
             self.assertTrue((root / "config" / "bazarr").exists())
             self.assertTrue((root / "logs").exists())
