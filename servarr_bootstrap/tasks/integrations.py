@@ -20,6 +20,7 @@ from ..services.arr import ArrClient, ArrClientError, QbittorrentConfig
 from ..services.bazarr import BazarrArrConfig, BazarrClient, BazarrClientError
 from ..services.prowlarr import ProwlarrClient, ProwlarrClientError
 from ..services.qbittorrent import QbitClient, QbitClientError
+from ..services.recyclarr import RecyclarrManager, RecyclarrError
 
 LOGGER = logging.getLogger("servarr.bootstrap.integrations")
 
@@ -67,6 +68,7 @@ def run_integration_tasks(root_dir: Path, runtime: RuntimeContext, console: Cons
         runner.configure_arr_clients()
         runner.configure_prowlarr_applications()
         runner.configure_bazarr()
+        runner.configure_recyclarr()
         runner.configure_service_auth()
 
 
@@ -225,6 +227,18 @@ class IntegrationRunner:
                 self.prowlarr_client.ensure_ui_credentials(username, password)
             except ProwlarrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
+
+    def configure_recyclarr(self) -> None:
+        manager = RecyclarrManager(self.root_dir, self.console, self.runtime.options.dry_run)
+        sonarr_key = self.arr_api_keys.get("sonarr")
+        radarr_key = self.arr_api_keys.get("radarr")
+        if not sonarr_key or not radarr_key:
+            raise IntegrationError("Arr API keys not available for Recyclarr configuration")
+        try:
+            manager.ensure_config(sonarr_key, radarr_key)
+            manager.run_sync()
+        except RecyclarrError as exc:
+            raise IntegrationError(str(exc)) from exc
 
     def _int_env(self, key: str, default: int) -> int:
         value = self.env.get(key)
