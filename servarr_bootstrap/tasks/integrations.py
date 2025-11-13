@@ -214,6 +214,7 @@ class IntegrationRunner:
 
         try:
             client.ensure_arr_integrations(sonarr_cfg, radarr_cfg, credentials=creds)
+            client.ensure_language_preferences()
         except BazarrClientError as exc:
             raise IntegrationError(str(exc)) from exc
 
