@@ -258,10 +258,13 @@ class IntegrationRunner:
                 raise IntegrationError(str(exc)) from exc
 
         torrent_clients = []
+        qbit_host = "gluetun" if self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"} else "qbittorrent"
         if username and password:
             from urllib.parse import quote
 
-            encoded = f"http://{quote(username)}:{quote(password)}@qbittorrent:{self._int_env('QBIT_WEBUI', 8080)}"
+            encoded = (
+                f"http://{quote(username)}:{quote(password)}@{qbit_host}:{self._int_env('QBIT_WEBUI', 8080)}"
+            )
             torrent_clients.append(f"qbittorrent:{encoded}")
         else:
             self.console.print("[yellow]Cross-Seed:[/] Skipping torrent client config (no credentials)")
