@@ -153,20 +153,20 @@ def _apply_config_permissions(config_root: Path, puid: Optional[str], pgid: Opti
         gid = int(pgid)
     except ValueError:
         return
-    console.print(f"[cyan]Config:[/] {'[dry-run] ' if dry_run else ''}Ensuring ownership {uid}:{gid}")
     if dry_run:
         return
+    LOGGER.info("Ensuring config ownership %s:%s", uid, gid)
     try:
         os.chown(config_root, uid, gid)
     except PermissionError:
-        LOGGER.warning("Permission denied while chowning %s. Run manually with sudo if needed.", config_root)
+        LOGGER.debug("Permission denied while chowning %s", config_root)
     for root, dirs, files in os.walk(config_root):
         for name in dirs + files:
             path = Path(root) / name
             try:
                 os.chown(path, uid, gid)
             except PermissionError:
-                LOGGER.warning("Permission denied while chowning %s. Run manually with sudo if needed.", path)
+                LOGGER.debug("Permission denied while chowning %s", path)
 
 
 def _iter_permission_targets(media_dir: Path) -> Iterable[Path]:
