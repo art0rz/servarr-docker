@@ -64,7 +64,8 @@ class IntegrationRunner:
     def configure_qbittorrent(self) -> None:
         base_url = f"http://127.0.0.1:{self._int_env('QBIT_WEBUI', 8080)}"
         lan_subnet = self.env.get("LAN_SUBNET")
-        client = QbitClient(base_url, self.console, self.runtime.options.dry_run)
+        container_name = self.env.get("QBIT_CONTAINER_NAME", "qbittorrent")
+        client = QbitClient(base_url, self.console, self.runtime.options.dry_run, container_name=container_name)
         try:
             client.ensure_credentials(
                 desired_username=self.runtime.credentials.username,
@@ -72,7 +73,8 @@ class IntegrationRunner:
                 lan_subnet=lan_subnet,
             )
         except QbitClientError as exc:
-            raise IntegrationError(str(exc)) from exc
+            self.console.print(f"[yellow]qBittorrent configuration skipped:[/] {exc}")
+            LOGGER.warning("qBittorrent configuration skipped: %s", exc)
 
     def configure_arr_clients(self) -> None:
         use_vpn = self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"}

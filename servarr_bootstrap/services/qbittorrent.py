@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from typing import Optional
 
 import requests
@@ -17,10 +18,11 @@ class QbitClientError(RuntimeError):
 
 
 class QbitClient:
-    def __init__(self, base_url: str, console: Console, dry_run: bool) -> None:
+    def __init__(self, base_url: str, console: Console, dry_run: bool, container_name: str = "qbittorrent") -> None:
         self.base_url = base_url.rstrip("/")
         self.console = console
         self.dry_run = dry_run
+        self.container_name = container_name
         self.session = requests.Session()
 
     def ensure_credentials(
@@ -36,6 +38,14 @@ class QbitClient:
 
         login_success = self._attempt_login(desired_username, desired_password)
         current_label = "bootstrap credentials" if login_success else None
+
+        if not login_success:
+            temp_creds = self._read_temp_credentials()
+            if temp_creds:
+                temp_user, temp_pass = temp_creds
+                self.console.print("[cyan]qBittorrent:[/] Trying temporary credentials from container logs")
+                login_success = self._attempt_login(temp_user, temp_pass)
+                current_label = "temporary credentials" if login_success else current_label
 
         if not login_success:
             login_success = self._attempt_login("admin", "adminadmin")
@@ -103,3 +113,32 @@ class QbitClient:
             response.raise_for_status()
         except requests.RequestException as exc:
             raise QbitClientError(f"Failed to update qBittorrent preferences: {exc}") from exc
+
+    def _read_temp_credentials(self) -> Optional[tuple[str, str]]:
+        if self.dry_run:
+            return None
+        try:
+            result = subprocess.run(
+                ["docker", "logs", self.container_name, "--tail", "200"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            LOGGER.debug("Docker CLI not available; cannot read qBittorrent logs for temp credentials")
+            return None
+
+        output = result.stdout
+        if not output:
+            return None
+
+        user = None
+        password = None
+        for line in output.splitlines():
+            if "The WebUI administrator username is:" in line:
+                user = line.rsplit(":", 1)[-1].strip()
+            if "A temporary password is provided for this session:" in line:
+                password = line.rsplit(":", 1)[-1].strip()
+        if user and password:
+            return user, password
+        return None
