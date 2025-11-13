@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -157,16 +158,46 @@ def _apply_config_permissions(config_root: Path, puid: Optional[str], pgid: Opti
         return
     LOGGER.info("Ensuring config ownership %s:%s", uid, gid)
     try:
-        os.chown(config_root, uid, gid)
-    except PermissionError:
-        LOGGER.debug("Permission denied while chowning %s", config_root)
-    for root, dirs, files in os.walk(config_root):
-        for name in dirs + files:
-            path = Path(root) / name
+        for root, dirs, files in os.walk(config_root):
             try:
-                os.chown(path, uid, gid)
+                os.chown(root, uid, gid)
             except PermissionError:
-                LOGGER.debug("Permission denied while chowning %s", path)
+                raise
+            for name in files:
+                os.chown(Path(root) / name, uid, gid)
+    except PermissionError:
+        if not _chown_with_docker(config_root, uid, gid):
+            LOGGER.warning(
+                "Permission denied while chowning %s. Consider running `docker run --rm -v %s:/target"
+                " alpine chown -R %s:%s /target` manually.",
+                config_root,
+                config_root,
+                uid,
+                gid,
+            )
+
+
+def _chown_with_docker(path: Path, uid: int, gid: int) -> bool:
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{path}:/target",
+                "alpine:3.20",
+                "sh",
+                "-c",
+                f"chown -R {uid}:{gid} /target",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        LOGGER.info("Adjusted ownership of %s via docker helper", path)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
 
 
 def _iter_permission_targets(media_dir: Path) -> Iterable[Path]:
