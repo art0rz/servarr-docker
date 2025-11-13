@@ -29,7 +29,7 @@ class RecyclarrManager:
         self.yaml = YAML()
         self.yaml.indent(sequence=2, offset=2)
 
-    def ensure_config(self, sonarr_api: str, radarr_api: str) -> None:
+    def ensure_config(self, sonarr_api: str, radarr_api: str, apply_templates: bool = True) -> None:
         config = self._load_config()
         changed = False
 
@@ -44,8 +44,8 @@ class RecyclarrManager:
             "quality_definition": {"type": "movie"},
         }
 
-        changed |= self._merge_instance(config, "sonarr", "sonarr", sonarr_entry)
-        changed |= self._merge_instance(config, "radarr", "radarr", radarr_entry)
+        changed |= self._merge_instance(config, "sonarr", "sonarr", sonarr_entry, apply_templates)
+        changed |= self._merge_instance(config, "radarr", "radarr", radarr_entry, apply_templates)
 
         if changed:
             if self.dry_run:
@@ -89,7 +89,7 @@ class RecyclarrManager:
         except Exception as exc:
             raise RecyclarrError(f"Failed to parse {self.config_path}: {exc}") from exc
 
-    def _merge_instance(self, data: Dict, section: str, name: str, settings: Dict) -> bool:
+    def _merge_instance(self, data: Dict, section: str, name: str, settings: Dict, apply_templates: bool) -> bool:
         data.setdefault(section, {})
         section_data = data[section]
         instance = section_data.get(name, {})
@@ -98,5 +98,22 @@ class RecyclarrManager:
             if instance.get(key) != value:
                 instance[key] = value
                 updated = True
+        if apply_templates and not instance.get("custom_formats"):
+            instance["custom_formats"] = [
+                {
+                    "trash_ids": [
+                        "c1578d5fad2241a8b6cb1b3863d86c01",
+                        "dfb86b3be0e13dea3cf7935c26b0cbe1",
+                    ],
+                }
+            ] if section == "sonarr" else [
+                {
+                    "trash_ids": [
+                        "496f355514737f7d83bf7aa4d24f8169",
+                        "d2603d4c5451dcc3b89a03759a9ce568",
+                    ],
+                }
+            ]
+            updated = True
         section_data[name] = instance
         return updated
