@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
+from dataclasses import replace
 from typing import Any, Dict
 
 import typer
@@ -13,12 +14,8 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
-from .config import (
-    ConfigError,
-    RuntimeContext,
-    RuntimeOptions,
-    build_runtime_context,
-)
+from .config import ConfigError, RuntimeContext, RuntimeOptions, build_runtime_context
+from .cleaner import CleanError, CleanPlan, perform_clean
 
 APP = typer.Typer(add_completion=False, invoke_without_command=True, help="Servarr bootstrapper (under construction)")
 CONSOLE = Console()
@@ -108,19 +105,33 @@ def main(
     """Bootstrapper entrypoint; defaults to the run command when no subcommand is provided."""
     log_path = configure_logging(verbose)
     options = RuntimeOptions(dry_run=dry_run, non_interactive=non_interactive, verbose=verbose)
-    try:
-        runtime = build_runtime_context(ROOT_DIR, options)
-    except ConfigError as exc:
-        CONSOLE.print(f"[bold red]Configuration error:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
-
-    _store_context(ctx, runtime=runtime, log_path=log_path)
+    context = _store_context(ctx, options=options, log_path=log_path)
 
     logging.getLogger(LOGGER_NAME).info("Logs written to %s", log_path)
 
     if ctx.invoked_subcommand is None:
+        runtime = _ensure_runtime_context(ctx, require_credentials=True)
+        context["runtime"] = runtime
         run_stub(runtime)
         raise typer.Exit(code=0)
+
+
+def _ensure_runtime_context(ctx: typer.Context, *, require_credentials: bool) -> RuntimeContext:
+    """Build (or rebuild) the runtime context using current options."""
+    context = ctx.ensure_object(dict)
+    options: RuntimeOptions = context.get("options", RuntimeOptions())
+    try:
+        runtime = build_runtime_context(
+            ROOT_DIR,
+            options,
+            require_credentials=require_credentials,
+        )
+    except ConfigError as exc:
+        CONSOLE.print(f"[bold red]Configuration error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+    context["runtime"] = runtime
+    context["options"] = runtime.options
+    return runtime
 
 
 @APP.command()
@@ -132,24 +143,14 @@ def run(
 ) -> None:
     """Execute the bootstrap workflow (currently stubbed)."""
     context = ctx.ensure_object(dict)
-    runtime: RuntimeContext | None = context.get("runtime")
-    if runtime is None:
-        CONSOLE.print("[bold red]Runtime context unavailable. Did the callback fail?[/bold red]")
-        raise typer.Exit(code=1)
-
-    # If flags were passed to the command directly, override the stored options.
-    updated = RuntimeOptions(
-        dry_run=dry_run or runtime.options.dry_run,
-        non_interactive=non_interactive or runtime.options.non_interactive,
-        verbose=verbose or runtime.options.verbose,
+    stored_options: RuntimeOptions = context.get("options", RuntimeOptions())
+    merged_options = RuntimeOptions(
+        dry_run=stored_options.dry_run or dry_run,
+        non_interactive=stored_options.non_interactive or non_interactive,
+        verbose=stored_options.verbose or verbose,
     )
-    runtime = RuntimeContext(
-        options=updated,
-        ci=runtime.ci,
-        env=runtime.env,
-        credentials=runtime.credentials,
-    )
-    context["runtime"] = runtime
+    context["options"] = merged_options
+    runtime = _ensure_runtime_context(ctx, require_credentials=True)
     run_stub(runtime)
 
 
@@ -157,18 +158,64 @@ def run(
 def clean(
     ctx: typer.Context,
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompts."),
+    purge_logs: bool = typer.Option(False, "--purge-logs", help="Remove bootstrap log files."),
+    purge_venv: bool = typer.Option(False, "--purge-venv", help="Delete the Python virtual environment (.venv)."),
 ) -> None:
     """Reset container configs and stop services (placeholder)."""
     context = ctx.ensure_object(dict)
-    runtime: RuntimeContext | None = context.get("runtime")
-    run_mode = "non-interactive" if runtime and runtime.options.non_interactive else "interactive"
-    logging.getLogger(LOGGER_NAME).info("Clean command invoked (force=%s, mode=%s)", force, run_mode)
+    stored_options: RuntimeOptions = context.get("options", RuntimeOptions())
+    merged_options = RuntimeOptions(
+        dry_run=stored_options.dry_run,
+        non_interactive=stored_options.non_interactive,
+        verbose=stored_options.verbose,
+    )
+    context["options"] = merged_options
+    runtime = _ensure_runtime_context(ctx, require_credentials=False)
+    run_mode = "non-interactive" if runtime.options.non_interactive else "interactive"
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.info("Clean command invoked (force=%s, mode=%s)", force, run_mode)
+
+    if runtime.options.non_interactive and not force:
+        CONSOLE.print("[bold red]Non-interactive clean requires --force.[/bold red]")
+        raise typer.Exit(code=2)
+
+    # Confirm destructive action unless forced.
+    proceed = True
+    if not force:
+        proceed = typer.confirm(
+            "This will stop containers and delete config directories under config/. Continue?",
+            default=False,
+        )
+    if not proceed:
+        CONSOLE.print("[yellow]Clean aborted.[/yellow]")
+        return
+
+    remove_logs = purge_logs
+    remove_venv = purge_venv
+    if not purge_logs and not runtime.options.non_interactive and not force:
+        remove_logs = typer.confirm("Remove bootstrap log files?", default=False)
+    if not purge_venv and not runtime.options.non_interactive and not force:
+        remove_venv = typer.confirm("Remove the Python virtual environment (.venv)?", default=False)
+
+    plan = CleanPlan(remove_logs=remove_logs, remove_venv=remove_venv)
+
+    try:
+        perform_clean(
+            root_dir=ROOT_DIR,
+            log_dir=LOG_DIR,
+            runtime=runtime,
+            plan=plan,
+            current_log=context.get("log_path"),
+        )
+    except CleanError as exc:
+        CONSOLE.print(f"[bold red]Clean failed:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
     CONSOLE.print(
         Panel(
-            "The clean/reset workflow is not yet implemented in the new bootstrapper.\n"
-            "Use `./bootstrap.sh legacy` for now.",
+            "Clean completed. Containers stopped and configuration directories reset.",
             title="Clean",
-            border_style="red",
+            border_style="green",
         )
     )
 

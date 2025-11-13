@@ -153,6 +153,8 @@ def build_runtime_context(
     root_dir: Path,
     options: RuntimeOptions,
     env: Mapping[str, str] | None = None,
+    *,
+    require_credentials: bool = True,
 ) -> RuntimeContext:
     """Load configuration and return a hydrated runtime context."""
     env_data = load_environment_data(root_dir, env=env)
@@ -162,10 +164,19 @@ def build_runtime_context(
     if ci_mode and not options.non_interactive:
         LOGGER.info("CI environment detected; forcing non-interactive mode.")
 
-    credentials = _collect_credentials(
-        env_data.merged,
-        non_interactive=effective_options.non_interactive,
-    )
+    if require_credentials:
+        credentials = _collect_credentials(
+            env_data.merged,
+            non_interactive=effective_options.non_interactive,
+        )
+    else:
+        username = env_data.merged.get("SERVARR_USERNAME")
+        password = env_data.merged.get("SERVARR_PASSWORD")
+        if username:
+            LOGGER.debug("SERVARR_USERNAME provided; using for clean context.")
+        if password:
+            LOGGER.debug("SERVARR_PASSWORD provided; using for clean context (hidden).")
+        credentials = Credentials(username=username, password=password)
 
     return RuntimeContext(
         options=effective_options,
