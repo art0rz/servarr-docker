@@ -308,8 +308,10 @@ services:
       - CROSS_SEED_PORT=${CROSS_SEED_PORT:-2468}
       - FLARESOLVERR_PORT=${FLARESOLVERR_PORT:-8191}
       - QBIT_WEBUI=${QBIT_WEBUI:-8080}
+      - CONFIG_ROOT=/config
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config:/config:ro
     ports:
       - "${HEALTH_PORT:-3000}:3000"
     restart: unless-stopped

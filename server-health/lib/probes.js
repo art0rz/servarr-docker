@@ -1,27 +1,53 @@
 import { cmd, dockerInspect, dockerEnvMap, getEgressIP } from './docker.js';
 
+function buildHeaderArgs(headers = []) {
+  return headers
+    .filter(Boolean)
+    .map(header => `-H ${JSON.stringify(header)}`)
+    .join(" ");
+}
+
+function arrHeaders(apiKey) {
+  return apiKey ? [`X-Api-Key: ${apiKey}`] : [];
+}
+
+function qbitHeaders(baseUrl, extras = []) {
+  return [`Referer: ${baseUrl}/`, `Origin: ${baseUrl}`, ...extras];
+}
+
+function headerArgsString(headers = []) {
+  const args = buildHeaderArgs(headers);
+  return args ? `${args} ` : "";
+}
+
 /**
  * Make a GET request using curl
  */
-async function httpGet(url) {
-  return cmd(`curl -sS -m 3 ${JSON.stringify(url)}`);
+async function httpGet(url, options = {}) {
+  const timeout = options.timeout || 3;
+  const headerArgs = buildHeaderArgs(options.headers);
+  const headerSegment = headerArgs ? `${headerArgs} ` : "";
+  return cmd(`curl -sS -m ${timeout} ${headerSegment}${JSON.stringify(url)}`);
 }
 
 /**
  * Make a POST request using curl
  */
-async function httpPost(url, body) {
+async function httpPost(url, body, options = {}) {
   const data = JSON.stringify(body);
-  return cmd(`curl -sS -m 4 -H "Content-Type: application/json" --data ${JSON.stringify(data)} ${JSON.stringify(url)}`);
+  const headers = ["Content-Type: application/json", ...(options.headers || [])];
+  const headerArgs = buildHeaderArgs(headers);
+  const timeout = options.timeout || 4;
+  return cmd(`curl -sS -m ${timeout} ${headerArgs} --data ${JSON.stringify(data)} ${JSON.stringify(url)}`);
 }
 
 /**
  * Generic probe for *arr services (Sonarr, Radarr, Prowlarr, Bazarr)
  */
-async function probeArrService(name, url, apiVersion = 'v3') {
+async function probeArrService(name, url, headers, apiVersion = 'v3') {
   if (!url) return { name, ok: false, reason: "container not found" };
 
-  const status = await httpGet(`${url}/api/${apiVersion}/system/status`);
+  const status = await httpGet(`${url}/api/${apiVersion}/system/status`, { headers });
   const ok = status.ok;
   let version = "";
 
@@ -37,11 +63,12 @@ async function probeArrService(name, url, apiVersion = 'v3') {
 /**
  * Probe Sonarr with queue info
  */
-export async function probeSonarr(url) {
-  const base = await probeArrService("Sonarr", url, "v3");
+export async function probeSonarr(url, apiKey) {
+  const headers = arrHeaders(apiKey);
+  const base = await probeArrService("Sonarr", url, headers, "v3");
   if (!base.ok) return base;
 
-  const queue = await httpGet(`${url}/api/v3/queue?page=1&pageSize=1`);
+  const queue = await httpGet(`${url}/api/v3/queue?page=1&pageSize=1`, { headers });
   let count = 0;
   try {
     const data = JSON.parse(queue.out);
@@ -54,11 +81,12 @@ export async function probeSonarr(url) {
 /**
  * Probe Radarr with queue info
  */
-export async function probeRadarr(url) {
-  const base = await probeArrService("Radarr", url, "v3");
+export async function probeRadarr(url, apiKey) {
+  const headers = arrHeaders(apiKey);
+  const base = await probeArrService("Radarr", url, headers, "v3");
   if (!base.ok) return base;
 
-  const queue = await httpGet(`${url}/api/v3/queue?page=1&pageSize=1`);
+  const queue = await httpGet(`${url}/api/v3/queue?page=1&pageSize=1`, { headers });
   let count = 0;
   try {
     const data = JSON.parse(queue.out);
@@ -71,11 +99,12 @@ export async function probeRadarr(url) {
 /**
  * Probe Prowlarr with indexer count
  */
-export async function probeProwlarr(url) {
-  const base = await probeArrService("Prowlarr", url, "v1");
+export async function probeProwlarr(url, apiKey) {
+  const headers = arrHeaders(apiKey);
+  const base = await probeArrService("Prowlarr", url, headers, "v1");
   if (!base.ok) return base;
 
-  const indexers = await httpGet(`${url}/api/v1/indexer`);
+  const indexers = await httpGet(`${url}/api/v1/indexer`, { headers });
   let active = 0;
   try {
     active = JSON.parse(indexers.out).filter(i => i.enable).length;
@@ -106,23 +135,52 @@ export async function probeBazarr(url) {
 /**
  * Probe qBittorrent (whitelist bypass)
  */
-export async function probeQbit(url) {
+export async function probeQbit(url, auth) {
   const name = "qBittorrent";
   if (!url) return { name, ok: false, reason: "container not found" };
 
-  const headers = `-H "Referer: ${url}/" -H "Origin: ${url}"`;
-  const result = await cmd(`curl -sS -m 3 ${headers} -w "%{http_code}" -o - ${JSON.stringify(url + "/api/v2/app/webapiVersion")}`);
+  const headerArgs = headerArgsString(qbitHeaders(url));
+  const versionResult = await cmd(
+    `curl -sS -m 3 ${headerArgs}-w "%{http_code}" -o - ${JSON.stringify(url + "/api/v2/app/webapiVersion")}`
+  );
 
-  if (result.ok) {
-    const body = result.out.slice(0, -3).trim();
-    const code = result.out.slice(-3);
+  let ok = false;
+  let version = "";
+
+  if (versionResult.ok) {
+    const body = versionResult.out.slice(0, -3).trim();
+    const code = versionResult.out.slice(-3);
 
     if (code === "200" && !/^Forbidden/i.test(body)) {
-      return { name, url, ok: true, version: body, http: 200 };
+      ok = true;
+      version = body;
     }
   }
 
-  return { name, url, ok: false, reason: "not whitelisted", http: 0 };
+  let dl = null;
+  let up = null;
+  let total = null;
+  let listenPort = null;
+
+  if (ok && auth?.username && auth?.password) {
+    const cookie = await qbitLogin(url, auth).catch(() => null);
+    if (cookie) {
+      const stats = await fetchQbitStats(url, cookie);
+      if (stats) {
+        dl = stats.dl;
+        up = stats.up;
+        total = stats.total;
+        listenPort = stats.listenPort ?? null;
+      }
+    }
+  }
+
+  if (ok) {
+    return { name, url, ok: true, version, http: 200, dl, up, total, listenPort };
+  }
+
+  const reason = versionResult.ok ? "not whitelisted" : (versionResult.err || versionResult.out || "unreachable");
+  return { name, url, ok: false, reason, http: 0 };
 }
 
 /**
@@ -248,4 +306,129 @@ export async function probeRecyclarr() {
     http: 0,
     detail: errorCount === 0 ? "no errors (24h)" : `${errorCount} error${errorCount !== 1 ? 's' : ''} (24h)`
   };
+}
+
+async function qbitLogin(url, auth) {
+  const payload = `username=${encodeURIComponent(auth.username)}&password=${encodeURIComponent(auth.password)}`;
+  const headers = qbitHeaders(url, ["Content-Type: application/x-www-form-urlencoded"]);
+  const command = `curl -sS -m 4 ${headerArgsString(headers)}-D - -o /dev/null --data ${JSON.stringify(payload)} ${JSON.stringify(url + "/api/v2/auth/login")}`;
+  const response = await cmd(command);
+  if (!response.ok) return null;
+
+  const match = response.out.match(/set-cookie:\s*SID=([^;]+)/i);
+  return match ? match[1].trim() : null;
+}
+
+async function fetchQbitStats(url, cookie) {
+  const headers = qbitHeaders(url, [`Cookie: SID=${cookie}`]);
+  const [transfer, torrents, prefs] = await Promise.all([
+    httpGet(`${url}/api/v2/transfer/info`, { headers, timeout: 4 }),
+    httpGet(`${url}/api/v2/torrents/info?filter=all`, { headers, timeout: 5 }),
+    httpGet(`${url}/api/v2/app/preferences`, { headers, timeout: 4 })
+  ]);
+
+  let dl = null;
+  let up = null;
+  let total = null;
+  let listenPort = null;
+
+  if (transfer.ok) {
+    try {
+      const data = JSON.parse(transfer.out);
+      dl = typeof data.dlspeed === "number" ? data.dlspeed : null;
+      up = typeof data.upspeed === "number" ? data.upspeed : null;
+    } catch {}
+  }
+
+  if (torrents.ok) {
+    try {
+      const list = JSON.parse(torrents.out);
+      total = Array.isArray(list) ? list.length : null;
+    } catch {}
+  }
+
+  if (prefs.ok) {
+    try {
+      const pref = JSON.parse(prefs.out);
+      if (typeof pref.listen_port === "number") {
+        listenPort = pref.listen_port;
+      }
+    } catch {}
+  }
+
+  if (dl === null && up === null && total === null && listenPort === null) {
+    return null;
+  }
+
+  return { dl, up, total, listenPort };
+}
+
+function summarizeNames(items) {
+  return items
+    .map(item => item?.name)
+    .filter(Boolean)
+    .join(", ");
+}
+
+async function checkArrDownloadClients(label, url, apiKey) {
+  if (!url) return { name: label, ok: false, detail: "service URL unavailable" };
+  if (!apiKey) return { name: label, ok: false, detail: "API key unavailable" };
+
+  const headers = arrHeaders(apiKey);
+  const response = await httpGet(`${url}/api/v3/downloadclient`, { headers, timeout: 4 });
+  if (!response.ok) {
+    return { name: label, ok: false, detail: response.err || response.out || "request failed" };
+  }
+
+  try {
+    const clients = JSON.parse(response.out);
+    const enabled = clients.filter(client => client.enable);
+    const detail = enabled.length
+      ? `enabled: ${summarizeNames(enabled)}`
+      : "no enabled clients";
+
+    return {
+      name: label,
+      ok: enabled.length > 0,
+      detail
+    };
+  } catch {
+    return { name: label, ok: false, detail: "failed to parse response" };
+  }
+}
+
+export async function checkSonarrDownloadClients(url, apiKey) {
+  return checkArrDownloadClients("Sonarr download clients", url, apiKey);
+}
+
+export async function checkRadarrDownloadClients(url, apiKey) {
+  return checkArrDownloadClients("Radarr download clients", url, apiKey);
+}
+
+export async function checkProwlarrIndexers(url, apiKey) {
+  const name = "Prowlarr indexers";
+  if (!url) return { name, ok: false, detail: "service URL unavailable" };
+  if (!apiKey) return { name, ok: false, detail: "API key unavailable" };
+
+  const headers = arrHeaders(apiKey);
+  const response = await httpGet(`${url}/api/v1/indexer`, { headers, timeout: 4 });
+  if (!response.ok) {
+    return { name, ok: false, detail: response.err || response.out || "request failed" };
+  }
+
+  try {
+    const indexers = JSON.parse(response.out);
+    const enabled = indexers.filter(indexer => indexer.enable);
+    const detail = enabled.length
+      ? `enabled: ${summarizeNames(enabled)}`
+      : "no enabled indexers";
+
+    return {
+      name,
+      ok: enabled.length > 0,
+      detail
+    };
+  } catch {
+    return { name, ok: false, detail: "failed to parse response" };
+  }
 }
