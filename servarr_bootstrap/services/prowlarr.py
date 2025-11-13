@@ -23,6 +23,7 @@ class ProwlarrClient:
         self.dry_run = dry_run
         self.session = requests.Session()
         self.session.headers.update({"X-Api-Key": api_key})
+        self.api_key = api_key
 
     def ensure_application(self, implementation: str, fields: Dict[str, Any], name: Optional[str] = None) -> None:
         """Ensure the Prowlarr application for the given implementation exists."""
@@ -96,6 +97,9 @@ class ProwlarrClient:
             if app.get("implementation") == implementation:
                 return app
         return None
+
+    def list_indexers(self) -> list[Dict[str, Any]]:
+        return self._request("GET", "/api/v1/indexer").json()
 
     def _build_payload(self, implementation: str, overrides: Dict[str, Any], name: str) -> Dict[str, Any]:
         schema = self._fetch_schema(implementation)

@@ -18,6 +18,7 @@ from ..services.api_keys import (
 )
 from ..services.arr import ArrClient, ArrClientError, QbittorrentConfig
 from ..services.bazarr import BazarrArrConfig, BazarrClient, BazarrClientError
+from ..services.cross_seed import CrossSeedConfigurator, CrossSeedError
 from ..services.prowlarr import ProwlarrClient, ProwlarrClientError
 from ..services.qbittorrent import QbitClient, QbitClientError
 from ..services.recyclarr import RecyclarrManager, RecyclarrError
@@ -69,6 +70,7 @@ def run_integration_tasks(root_dir: Path, runtime: RuntimeContext, console: Cons
         runner.configure_prowlarr_applications()
         runner.configure_bazarr()
         runner.configure_recyclarr()
+        runner.configure_cross_seed()
         runner.configure_service_auth()
 
 
@@ -238,6 +240,41 @@ class IntegrationRunner:
             manager.ensure_config(sonarr_key, radarr_key)
             manager.run_sync()
         except RecyclarrError as exc:
+            raise IntegrationError(str(exc)) from exc
+
+    def configure_cross_seed(self) -> None:
+        username = self.runtime.credentials.username
+        password = self.runtime.credentials.password
+        torznab_urls = []
+        if hasattr(self, "prowlarr_client"):
+            try:
+                indexers = self.prowlarr_client.list_indexers()
+                torznab_urls = [
+                    f"http://prowlarr:9696/{idx['id']}/api?apikey={self.prowlarr_client.api_key}"
+                    for idx in indexers
+                    if idx.get("enable")
+                ]
+            except ProwlarrClientError as exc:
+                raise IntegrationError(str(exc)) from exc
+
+        torrent_clients = []
+        if username and password:
+            from urllib.parse import quote
+
+            encoded = f"http://{quote(username)}:{quote(password)}@qbittorrent:{self._int_env('QBIT_WEBUI', 8080)}"
+            torrent_clients.append(f"qbittorrent:{encoded}")
+        else:
+            self.console.print("[yellow]Cross-Seed:[/] Skipping torrent client config (no credentials)")
+
+        configurator = CrossSeedConfigurator(self.root_dir, self.console, self.runtime.options.dry_run)
+        try:
+            configurator.ensure_config(
+                torznab_urls=torznab_urls,
+                sonarr_urls=["http://sonarr:8989"],
+                radarr_urls=["http://radarr:7878"],
+                torrent_clients=torrent_clients,
+            )
+        except CrossSeedError as exc:
             raise IntegrationError(str(exc)) from exc
 
     def _int_env(self, key: str, default: int) -> int:
