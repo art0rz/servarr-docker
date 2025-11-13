@@ -101,11 +101,11 @@ class ProwlarrClient:
         schema = self._fetch_schema(implementation)
         fields = {field["name"]: field for field in schema.get("fields", [])}
 
-        for name, value in overrides.items():
-            if name in fields:
-                fields[name]["value"] = value
+        for field_name, value in overrides.items():
+            if field_name in fields:
+                fields[field_name]["value"] = value
             else:
-                fields[name] = {"name": name, "value": value}
+                fields[field_name] = {"name": field_name, "value": value}
 
         schema["fields"] = list(fields.values())
         schema["name"] = name

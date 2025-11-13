@@ -5,13 +5,19 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from rich.console import Console
 
 from ..config import RuntimeContext
-from ..services.api_keys import ApiKeyError, read_arr_api_key, read_prowlarr_api_key
+from ..services.api_keys import (
+    ApiKeyError,
+    read_arr_api_key,
+    read_prowlarr_api_key,
+    read_bazarr_api_key,
+)
 from ..services.arr import ArrClient, ArrClientError, QbittorrentConfig
+from ..services.bazarr import BazarrArrConfig, BazarrClient, BazarrClientError
 from ..services.prowlarr import ProwlarrClient, ProwlarrClientError
 from ..services.qbittorrent import QbitClient, QbitClientError
 
@@ -60,6 +66,7 @@ def run_integration_tasks(root_dir: Path, runtime: RuntimeContext, console: Cons
         runner.configure_qbittorrent()
         runner.configure_arr_clients()
         runner.configure_prowlarr_applications()
+        runner.configure_bazarr()
         runner.configure_service_auth()
 
 
@@ -69,6 +76,7 @@ class IntegrationRunner:
         self.runtime = runtime
         self.console = console
         self.env = runtime.env.merged
+        self.arr_api_keys: Dict[str, str] = {}
 
     def configure_qbittorrent(self) -> None:
         base_url = f"http://127.0.0.1:{self._int_env('QBIT_WEBUI', 8080)}"
@@ -95,6 +103,7 @@ class IntegrationRunner:
                 api_key = read_arr_api_key(self.root_dir, target.service_key)
             except ApiKeyError as exc:
                 raise IntegrationError(str(exc)) from exc
+            self.arr_api_keys[target.service_key] = api_key
 
             port = self._int_env(target.port_env, 0)
             base_url = f"http://127.0.0.1:{port}" if port else f"http://{target.service_key}:80"
@@ -147,6 +156,44 @@ class IntegrationRunner:
                 raise IntegrationError(str(exc)) from exc
 
         self.prowlarr_client = client
+
+    def configure_bazarr(self) -> None:
+        try:
+            bazarr_key = read_bazarr_api_key(self.root_dir)
+        except ApiKeyError as exc:
+            raise IntegrationError(str(exc)) from exc
+
+        base_url = f"http://127.0.0.1:{self._int_env('BAZARR_PORT', 6767)}"
+        client = BazarrClient(base_url, bazarr_key, self.console, self.runtime.options.dry_run)
+
+        sonarr_key = self.arr_api_keys.get("sonarr")
+        radarr_key = self.arr_api_keys.get("radarr")
+        if not sonarr_key or not radarr_key:
+            raise IntegrationError("Arr API keys not available for Bazarr integration")
+
+        sonarr_cfg = BazarrArrConfig(
+            host="sonarr",
+            port=self._int_env("SONARR_PORT", 8989),
+            api_key=sonarr_key,
+            base_url=self.env.get("SONARR_BASE_URL", ""),
+            use_ssl=False,
+        )
+        radarr_cfg = BazarrArrConfig(
+            host="radarr",
+            port=self._int_env("RADARR_PORT", 7878),
+            api_key=radarr_key,
+            base_url=self.env.get("RADARR_BASE_URL", ""),
+            use_ssl=False,
+        )
+
+        creds = None
+        if self.runtime.credentials.username and self.runtime.credentials.password:
+            creds = (self.runtime.credentials.username, self.runtime.credentials.password)
+
+        try:
+            client.ensure_arr_integrations(sonarr_cfg, radarr_cfg, credentials=creds)
+        except BazarrClientError as exc:
+            raise IntegrationError(str(exc)) from exc
 
     def configure_service_auth(self) -> None:
         username = self.runtime.credentials.username

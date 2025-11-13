@@ -2,7 +2,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from servarr_bootstrap.services.api_keys import ApiKeyError, read_arr_api_key, read_prowlarr_api_key
+from servarr_bootstrap.services.api_keys import (
+    ApiKeyError,
+    read_arr_api_key,
+    read_prowlarr_api_key,
+    read_bazarr_api_key,
+)
 
 
 class ApiKeyTests(unittest.TestCase):
@@ -28,6 +33,15 @@ class ApiKeyTests(unittest.TestCase):
             cfg.mkdir(parents=True)
             (cfg / "config.xml").write_text("<Config><ApiKey>prowlarr</ApiKey></Config>")
             self.assertEqual(read_prowlarr_api_key(root), "prowlarr")
+
+    def test_read_bazarr_key(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = root / "config" / "bazarr" / "config"
+            cfg.mkdir(parents=True)
+            cfg_file = cfg / "config.yaml"
+            cfg_file.write_text("---\nauth:\n  apikey: bazarr-key\n  username: ''\n  password: ''\n")
+            self.assertEqual(read_bazarr_api_key(root), "bazarr-key")
 
 
 if __name__ == "__main__":
