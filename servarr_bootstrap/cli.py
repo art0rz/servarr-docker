@@ -14,8 +14,9 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
-from .config import ConfigError, RuntimeContext, RuntimeOptions, build_runtime_context
 from .cleaner import CleanError, CleanPlan, perform_clean
+from .config import ConfigError, RuntimeContext, RuntimeOptions, build_runtime_context
+from .sanity import run_sanity_scan, render_report
 
 APP = typer.Typer(add_completion=False, invoke_without_command=True, help="Servarr bootstrapper (under construction)")
 CONSOLE = Console()
@@ -111,8 +112,7 @@ def main(
 
     if ctx.invoked_subcommand is None:
         runtime = _ensure_runtime_context(ctx, require_credentials=True)
-        context["runtime"] = runtime
-        run_stub(runtime)
+        _execute_sanity_and_stub(runtime)
         raise typer.Exit(code=0)
 
 
@@ -151,7 +151,7 @@ def run(
     )
     context["options"] = merged_options
     runtime = _ensure_runtime_context(ctx, require_credentials=True)
-    run_stub(runtime)
+    _execute_sanity_and_stub(runtime)
 
 
 @APP.command()
@@ -223,3 +223,10 @@ def clean(
 def run_app() -> None:
     """Serve as the entrypoint callable for `python -m servarr_bootstrap`."""
     APP()
+
+
+def _execute_sanity_and_stub(runtime: RuntimeContext) -> None:
+    """Run the sanity scan before executing the placeholder workflow."""
+    report = run_sanity_scan(ROOT_DIR, runtime)
+    render_report(report, CONSOLE)
+    run_stub(runtime)
