@@ -57,6 +57,38 @@ class ArrClient:
             self._request("POST", "/api/v3/downloadclient", json=payload)
             self.console.print(f"[green]{self.name}:[/] Added qBittorrent download client")
 
+    def ensure_ui_credentials(self, username: Optional[str], password: Optional[str]) -> None:
+        """Ensure the Arr UI requires login with the shared credentials."""
+        if not username or not password:
+            self.console.print(f"[yellow]{self.name}:[/] Skipping auth configuration (no username/password)")
+            return
+
+        if self.dry_run:
+            self.console.print(f"[magenta][dry-run][/magenta] Would configure UI credentials for {self.name}")
+            return
+
+        host_config = self._request("GET", "/api/v3/config/host").json()
+        needs_update = (
+            host_config.get("authenticationMethod") != "forms"
+            or host_config.get("username") != username
+        )
+        if not needs_update:
+            self.console.print(f"[green]{self.name}:[/] UI credentials already configured")
+            return
+
+        payload = host_config.copy()
+        payload.update(
+            {
+                "authenticationMethod": "forms",
+                "authenticationRequired": "enabled",
+                "username": username,
+                "password": password,
+                "passwordConfirmation": password,
+            }
+        )
+        self._request("PUT", "/api/v3/config/host", json=payload)
+        self.console.print(f"[green]{self.name}:[/] UI credentials configured")
+
     def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
         url = f"{self.base_url}{path}"
         try:

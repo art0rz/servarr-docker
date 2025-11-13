@@ -5,12 +5,15 @@ from __future__ import annotations
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Sequence
 
 import requests
 from rich.console import Console
+from rich.live import Live
+from rich.table import Table
 
 from .cleaner import CommandRunner, run_command
 from .config import RuntimeContext
@@ -185,25 +188,47 @@ def _start_services(
 
 def _wait_for_services(runtime: RuntimeContext, console: Console) -> None:
     env = runtime.env.merged
-    for probe in SERVICE_PROBES:
+    statuses: Dict[str, str] = {probe.name: "waiting" for probe in SERVICE_PROBES}
+    details: Dict[str, str] = {probe.name: "Waiting for response" for probe in SERVICE_PROBES}
+
+    def render_table() -> Table:
+        table = Table(title="Service Readiness", show_lines=False)
+        table.add_column("Service", style="bold")
+        table.add_column("Status")
+        table.add_column("Details")
+        for probe in SERVICE_PROBES:
+            status = statuses[probe.name]
+            style = "yellow"
+            if status == "ready":
+                style = "green"
+            elif status == "error":
+                style = "red"
+            table.add_row(probe.name, f"[{style}]{status}[/]", details[probe.name])
+        return table
+
+    def check_probe(probe: ServiceProbe) -> tuple[str, str, str]:
         port_value = env.get(probe.env_port_key)
         try:
             port = int(port_value) if port_value else probe.default_port
         except ValueError:
-            console.print(f"[yellow]{probe.name}: invalid port '{port_value}'. Skipping readiness check.[/yellow]")
-            continue
+            return probe.name, "error", f"Invalid port '{port_value}'"
 
         url = f"http://127.0.0.1:{port}{probe.path}"
-        console.print(f"[cyan]Wait:[/] Checking {probe.name} at {url}")
         for attempt in range(1, 11):
             try:
                 response = requests.get(url, timeout=3)
+                if 200 <= response.status_code < 400:
+                    return probe.name, "ready", f"Reachable at {url}"
             except requests.RequestException as exc:
                 LOGGER.debug("Attempt %s failed for %s: %s", attempt, url, exc)
-                time.sleep(3)
-                continue
-            if 200 <= response.status_code < 400:
-                console.print(f"[green]{probe.name} is reachable.[/green]")
-                break
-        else:
-            console.print(f"[yellow]{probe.name} did not respond after multiple attempts.[/yellow]")
+            time.sleep(3)
+        return probe.name, "error", "No response after multiple attempts"
+
+    with Live(render_table(), refresh_per_second=4, console=console) as live:
+        with ThreadPoolExecutor(max_workers=len(SERVICE_PROBES)) as executor:
+            futures = {executor.submit(check_probe, probe): probe for probe in SERVICE_PROBES}
+            for future in as_completed(futures):
+                name, status, detail = future.result()
+                statuses[name] = status
+                details[name] = detail
+                live.update(render_table())

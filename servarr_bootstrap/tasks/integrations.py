@@ -60,6 +60,7 @@ def run_integration_tasks(root_dir: Path, runtime: RuntimeContext, console: Cons
         runner.configure_qbittorrent()
         runner.configure_arr_clients()
         runner.configure_prowlarr_applications()
+        runner.configure_service_auth()
 
 
 class IntegrationRunner:
@@ -141,7 +142,40 @@ class IntegrationRunner:
                 "apiKey": api_key,
             }
             try:
-                client.ensure_application(target.prowlarr_implementation(), fields)
+                client.ensure_application(target.prowlarr_implementation(), fields, name=target.name)
+            except ProwlarrClientError as exc:
+                raise IntegrationError(str(exc)) from exc
+
+        self.prowlarr_client = client
+
+    def configure_service_auth(self) -> None:
+        username = self.runtime.credentials.username
+        password = self.runtime.credentials.password
+        if not username or not password:
+            return
+
+        for target in ARR_TARGETS:
+            try:
+                api_key = read_arr_api_key(self.root_dir, target.service_key)
+            except ApiKeyError as exc:
+                raise IntegrationError(str(exc)) from exc
+
+            arr_port = self._int_env(target.port_env, target.default_port())
+            arr_client = ArrClient(
+                target.name,
+                f"http://127.0.0.1:{arr_port}",
+                api_key,
+                self.console,
+                self.runtime.options.dry_run,
+            )
+            try:
+                arr_client.ensure_ui_credentials(username, password)
+            except ArrClientError as exc:
+                raise IntegrationError(str(exc)) from exc
+
+        if hasattr(self, "prowlarr_client"):
+            try:
+                self.prowlarr_client.ensure_ui_credentials(username, password)
             except ProwlarrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
 

@@ -24,7 +24,7 @@ class ProwlarrClient:
         self.session = requests.Session()
         self.session.headers.update({"X-Api-Key": api_key})
 
-    def ensure_application(self, implementation: str, fields: Dict[str, Any]) -> None:
+    def ensure_application(self, implementation: str, fields: Dict[str, Any], name: Optional[str] = None) -> None:
         """Ensure the Prowlarr application for the given implementation exists."""
         self.console.print(f"[cyan]Prowlarr:[/] ensuring {implementation} application")
         if self.dry_run:
@@ -32,7 +32,7 @@ class ProwlarrClient:
             return
 
         existing = self._find_application(implementation)
-        payload = self._build_payload(implementation, fields)
+        payload = self._build_payload(implementation, fields, name=name or implementation)
 
         if existing:
             payload["id"] = existing["id"]
@@ -42,11 +42,43 @@ class ProwlarrClient:
             self._request("POST", "/api/v1/applications", json=payload)
             self.console.print(f"[green]Prowlarr:[/] Created {implementation} application")
 
+    def ensure_ui_credentials(self, username: Optional[str], password: Optional[str]) -> None:
+        if not username or not password:
+            self.console.print("[yellow]Prowlarr:[/] Skipping auth configuration (no username/password)")
+            return
+
+        if self.dry_run:
+            self.console.print("[magenta][dry-run][/magenta] Would configure UI credentials for Prowlarr")
+            return
+
+        host_config = self._request("GET", "/api/v1/config/host").json()
+        needs_update = (
+            host_config.get("authenticationMethod") != "forms"
+            or host_config.get("username") != username
+        )
+        if not needs_update:
+            self.console.print("[green]Prowlarr:[/] UI credentials already configured")
+            return
+
+        payload = host_config.copy()
+        payload.update(
+            {
+                "authenticationMethod": "forms",
+                "authenticationRequired": "enabled",
+                "username": username,
+                "password": password,
+                "passwordConfirmation": password,
+            }
+        )
+        self._request("PUT", "/api/v1/config/host", json=payload)
+        self.console.print("[green]Prowlarr:[/] UI credentials configured")
+
     def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
         url = f"{self.base_url}{path}"
         try:
             response = self.session.request(method, url, timeout=10, **kwargs)
-            response.raise_for_status()
+            if response.status_code >= 400:
+                raise requests.HTTPError(f"{response.status_code} {response.text}", response=response)
             return response
         except requests.RequestException as exc:
             raise ProwlarrClientError(f"Prowlarr API request failed ({method} {path}): {exc}") from exc
@@ -65,7 +97,7 @@ class ProwlarrClient:
                 return app
         return None
 
-    def _build_payload(self, implementation: str, overrides: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_payload(self, implementation: str, overrides: Dict[str, Any], name: str) -> Dict[str, Any]:
         schema = self._fetch_schema(implementation)
         fields = {field["name"]: field for field in schema.get("fields", [])}
 
@@ -76,6 +108,7 @@ class ProwlarrClient:
                 fields[name] = {"name": name, "value": value}
 
         schema["fields"] = list(fields.values())
+        schema["name"] = name
         schema["enable"] = True
         schema.setdefault("tags", [])
         schema.setdefault("syncLevel", schema.get("syncLevel", "fullSync"))
