@@ -33,7 +33,7 @@ class SetupTasksTests(unittest.TestCase):
             def fake_runner(cmd, cwd, env):
                 commands.append((tuple(cmd), cwd, env.get("COMPOSE_PROFILES") if env else None))
 
-            plan = SetupPlan()
+            plan = SetupPlan(wait_for_services=False)
             perform_setup(root, runtime, Console(file=StringIO()), plan, command_runner=fake_runner)
 
             for name in ("qbittorrent", "prowlarr", "sonarr", "radarr", "bazarr", "cross-seed", "recyclarr"):
@@ -62,7 +62,13 @@ class SetupTasksTests(unittest.TestCase):
                 credentials=Credentials(username="user", password="pass"),
             )
 
-            perform_setup(root, runtime, Console(file=StringIO()), SetupPlan(), command_runner=lambda *args, **kwargs: None)
+            perform_setup(
+                root,
+                runtime,
+                Console(file=StringIO()),
+                SetupPlan(wait_for_services=False),
+                command_runner=lambda *args, **kwargs: None,
+            )
 
             for name in ("qbittorrent", "prowlarr", "sonarr", "radarr", "bazarr", "cross-seed", "recyclarr"):
                 self.assertFalse((root / "config" / name).exists())

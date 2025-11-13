@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Sequence
 
+import requests
 from rich.console import Console
 
 from .cleaner import CommandRunner, run_command
 from .config import RuntimeContext
+from .sanity import SERVICE_PROBES, ServiceProbe
 
 LOGGER = logging.getLogger("servarr.bootstrap.setup")
 CONFIG_DIRECTORIES = (
@@ -42,6 +45,7 @@ class SetupPlan:
     create_media_dirs: bool = True
     fix_permissions: bool = True
     start_services: bool = True
+    wait_for_services: bool = True
 
 
 def perform_setup(
@@ -77,7 +81,15 @@ def perform_setup(
     if plan.start_services:
         use_vpn_value = env.get("USE_VPN", "true").strip().lower()
         use_vpn = use_vpn_value not in {"false", "0", "no", "off"}
-        _start_services(root_dir, use_vpn, dry_run, command_runner, console)
+        _start_services(
+            root_dir,
+            use_vpn,
+            dry_run,
+            command_runner,
+            console,
+            runtime=runtime,
+            wait=plan.wait_for_services,
+        )
 
 
 def _ensure_config_dirs(config_root: Path, console: Console, dry_run: bool) -> None:
@@ -142,11 +154,13 @@ def _start_services(
     dry_run: bool,
     command_runner: CommandRunner | None,
     console: Console,
+    *,
+    runtime: RuntimeContext,
+    wait: bool,
 ) -> None:
     profile = "vpn" if use_vpn else "no-vpn"
     logger_prefix = "VPN" if use_vpn else "no-VPN"
     console.print(f"[cyan]Docker:[/] {'[dry-run] ' if dry_run else ''}Starting services with profile '{profile}'")
-    env_base: Dict[str, str] = {}
 
     def run(cmd: list[str], env_profile: Optional[str] = None) -> None:
         env = os.environ.copy()
@@ -165,3 +179,31 @@ def _start_services(
     run(["docker", "compose", "up", "-d"], env_profile=profile)
     LOGGER.info("Docker services started with %s profile", logger_prefix)
 
+    if wait and not dry_run:
+        _wait_for_services(runtime, console)
+
+
+def _wait_for_services(runtime: RuntimeContext, console: Console) -> None:
+    env = runtime.env.merged
+    for probe in SERVICE_PROBES:
+        port_value = env.get(probe.env_port_key)
+        try:
+            port = int(port_value) if port_value else probe.default_port
+        except ValueError:
+            console.print(f"[yellow]{probe.name}: invalid port '{port_value}'. Skipping readiness check.[/yellow]")
+            continue
+
+        url = f"http://127.0.0.1:{port}{probe.path}"
+        console.print(f"[cyan]Wait:[/] Checking {probe.name} at {url}")
+        for attempt in range(1, 11):
+            try:
+                response = requests.get(url, timeout=3)
+            except requests.RequestException as exc:
+                LOGGER.debug("Attempt %s failed for %s: %s", attempt, url, exc)
+                time.sleep(3)
+                continue
+            if 200 <= response.status_code < 400:
+                console.print(f"[green]{probe.name} is reachable.[/green]")
+                break
+        else:
+            console.print(f"[yellow]{probe.name} did not respond after multiple attempts.[/yellow]")
