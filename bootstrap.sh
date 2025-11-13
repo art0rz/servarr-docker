@@ -1,77 +1,71 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Parse command line arguments
-DRY_RUN=false
-if [[ "${1:-}" == "--dry-run" ]]; then
-  DRY_RUN=true
-  echo "=== DRY RUN MODE - No actual changes will be made ==="
-  echo ""
-fi
-
-# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="${SCRIPT_DIR}/.venv"
+REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
+LEGACY_SCRIPT="${SCRIPT_DIR}/bootstrap-legacy.sh"
+PYTHON_ENTRY="servarr_bootstrap"
 
-# Source utility functions
-# shellcheck source=scripts/utils.sh
-source "${SCRIPT_DIR}/scripts/utils.sh"
-
-# Source other modules
-# shellcheck source=scripts/config.sh
-source "${SCRIPT_DIR}/scripts/config.sh"
-# shellcheck source=scripts/setup.sh
-source "${SCRIPT_DIR}/scripts/setup.sh"
-# shellcheck source=scripts/docker.sh
-source "${SCRIPT_DIR}/scripts/docker.sh"
-# shellcheck source=scripts/qbittorrent-setup.sh
-source "${SCRIPT_DIR}/scripts/qbittorrent-setup.sh"
-
-# Check if .env exists
-if [ ! -f .env ]; then
-  echo "No .env file found. Starting interactive configuration..."
-  echo ""
-  configure_env
-else
-  echo "Found existing .env file."
-  read -r -p "Do you want to reconfigure? (y/N): " RECONFIG
-  if [[ "$RECONFIG" =~ ^[Yy]$ ]]; then
-    configure_env
+if [[ "${1:-}" == "legacy" ]]; then
+  shift
+  if [[ ! -x "$LEGACY_SCRIPT" ]]; then
+    echo "Legacy bootstrap script not found at $LEGACY_SCRIPT" >&2
+    exit 1
   fi
+  exec "$LEGACY_SCRIPT" "$@"
 fi
 
-# Source environment variables
-set -a
-# shellcheck source=.env
-source .env
-set +a
+command -v python3 >/dev/null 2>&1 || {
+  echo "python3 is required but was not found in PATH." >&2
+  exit 1
+}
 
-# Set defaults for optional VPN variables to avoid unbound variable errors
-set_vpn_defaults
+if [[ ! -f "$REQUIREMENTS_FILE" ]]; then
+  echo "Missing requirements file at $REQUIREMENTS_FILE" >&2
+  exit 1
+fi
 
-# Auto-detect Docker GID if not set in .env
-if [ -z "${DOCKER_GID:-}" ]; then
-  DETECTED_GID=$(detect_docker_gid)
-  export DOCKER_GID="$DETECTED_GID"
-  echo "Auto-detected Docker GID: $DOCKER_GID"
-  if [ "$DOCKER_GID" != "984" ]; then
-    echo "Note: Your Docker GID differs from default (984). Using $DOCKER_GID"
+if [[ ! -d "$VENV_DIR" ]]; then
+  echo "Creating Python virtual environment..."
+  python3 -m venv "$VENV_DIR"
+fi
+
+PYTHON_BIN="${VENV_DIR}/bin/python"
+REQ_HASH_FILE="${VENV_DIR}/.requirements-hash"
+
+calculate_requirements_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$REQUIREMENTS_FILE" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$REQUIREMENTS_FILE" | awk '{print $1}'
+  else
+    echo ""
   fi
-fi
+}
 
-# Setup directories
-setup_directories
+install_requirements() {
+  local current_hash
+  current_hash="$(calculate_requirements_hash)"
+  local needs_install=1
 
-# Start services
-start_services
+  if [[ -n "$current_hash" && -f "$REQ_HASH_FILE" ]]; then
+    read -r cached_hash <"$REQ_HASH_FILE"
+    if [[ "$cached_hash" == "$current_hash" ]]; then
+      needs_install=0
+    fi
+  fi
 
-# Configure qBittorrent
-configure_qbittorrent
+  if [[ $needs_install -eq 1 ]]; then
+    echo "Installing Python dependencies..."
+    "$PYTHON_BIN" -m pip install --upgrade pip >/dev/null
+    "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS_FILE"
+    if [[ -n "$current_hash" ]]; then
+      echo "$current_hash" >"$REQ_HASH_FILE"
+    fi
+  fi
+}
 
-# Print completion message
-if [ "$DRY_RUN" = true ]; then
-  echo ""
-  echo "=== DRY RUN COMPLETE ==="
-  echo "No actual changes were made. To run for real, execute without --dry-run"
-else
-  print_completion_message
-fi
+install_requirements
+
+exec "$PYTHON_BIN" -m "$PYTHON_ENTRY" "$@"

@@ -9,6 +9,7 @@ config/
 
 # Logs
 *.log
+logs/
 
 # OS files
 .DS_Store
@@ -23,3 +24,8 @@ Thumbs.db
 
 # Node modules (if running locally)
 node_modules/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
