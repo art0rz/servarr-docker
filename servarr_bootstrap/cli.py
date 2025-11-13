@@ -13,6 +13,13 @@ from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
 
+from .config import (
+    ConfigError,
+    RuntimeContext,
+    RuntimeOptions,
+    build_runtime_context,
+)
+
 APP = typer.Typer(add_completion=False, invoke_without_command=True, help="Servarr bootstrapper (under construction)")
 CONSOLE = Console()
 LOGGER_NAME = "servarr.bootstrap"
@@ -58,12 +65,17 @@ def configure_logging(verbose: bool) -> Path:
     return log_file
 
 
-def run_stub(dry_run: bool, non_interactive: bool) -> None:
+def run_stub(runtime: RuntimeContext) -> None:
     """Temporary placeholder until the real bootstrap tasks are implemented."""
     logger = logging.getLogger(LOGGER_NAME)
     table = Table(title="Bootstrap Context", show_header=False, box=None)
-    table.add_row("Dry run", str(dry_run))
-    table.add_row("Non-interactive", str(non_interactive))
+    table.add_row("Dry run", str(runtime.options.dry_run))
+    table.add_row("Non-interactive", str(runtime.options.non_interactive))
+    table.add_row("CI mode detected", str(runtime.ci))
+    env_file_display = runtime.env.env_file.as_posix() if runtime.env.env_file else "Not found"
+    table.add_row(".env path", env_file_display)
+    table.add_row("Username", runtime.credentials.username or "<not set>")
+    table.add_row("Password provided", "Yes" if runtime.credentials.password else "No")
     CONSOLE.print(table)
     CONSOLE.print(
         Panel(
@@ -73,7 +85,11 @@ def run_stub(dry_run: bool, non_interactive: bool) -> None:
             border_style="yellow",
         )
     )
-    logger.info("Python bootstrap stub executed (dry_run=%s, non_interactive=%s)", dry_run, non_interactive)
+    logger.info(
+        "Python bootstrap stub executed (dry_run=%s, non_interactive=%s)",
+        runtime.options.dry_run,
+        runtime.options.non_interactive,
+    )
 
 
 def _store_context(ctx: typer.Context, **kwargs: Any) -> Dict[str, Any]:
@@ -91,12 +107,19 @@ def main(
 ) -> None:
     """Bootstrapper entrypoint; defaults to the run command when no subcommand is provided."""
     log_path = configure_logging(verbose)
-    _store_context(ctx, dry_run=dry_run, non_interactive=non_interactive, verbose=verbose, log_path=log_path)
+    options = RuntimeOptions(dry_run=dry_run, non_interactive=non_interactive, verbose=verbose)
+    try:
+        runtime = build_runtime_context(ROOT_DIR, options)
+    except ConfigError as exc:
+        CONSOLE.print(f"[bold red]Configuration error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    _store_context(ctx, runtime=runtime, log_path=log_path)
 
     logging.getLogger(LOGGER_NAME).info("Logs written to %s", log_path)
 
     if ctx.invoked_subcommand is None:
-        run_stub(dry_run=dry_run, non_interactive=non_interactive)
+        run_stub(runtime)
         raise typer.Exit(code=0)
 
 
@@ -109,12 +132,25 @@ def run(
 ) -> None:
     """Execute the bootstrap workflow (currently stubbed)."""
     context = ctx.ensure_object(dict)
-    # Prefer CLI args passed directly to the command; otherwise fall back to callback values.
-    effective_dry_run = dry_run or context.get("dry_run", False)
-    effective_non_interactive = non_interactive or context.get("non_interactive", False)
-    if verbose:
-        context["verbose"] = True
-    run_stub(dry_run=effective_dry_run, non_interactive=effective_non_interactive)
+    runtime: RuntimeContext | None = context.get("runtime")
+    if runtime is None:
+        CONSOLE.print("[bold red]Runtime context unavailable. Did the callback fail?[/bold red]")
+        raise typer.Exit(code=1)
+
+    # If flags were passed to the command directly, override the stored options.
+    updated = RuntimeOptions(
+        dry_run=dry_run or runtime.options.dry_run,
+        non_interactive=non_interactive or runtime.options.non_interactive,
+        verbose=verbose or runtime.options.verbose,
+    )
+    runtime = RuntimeContext(
+        options=updated,
+        ci=runtime.ci,
+        env=runtime.env,
+        credentials=runtime.credentials,
+    )
+    context["runtime"] = runtime
+    run_stub(runtime)
 
 
 @APP.command()
@@ -124,7 +160,8 @@ def clean(
 ) -> None:
     """Reset container configs and stop services (placeholder)."""
     context = ctx.ensure_object(dict)
-    run_mode = "non-interactive" if context.get("non_interactive") else "interactive"
+    runtime: RuntimeContext | None = context.get("runtime")
+    run_mode = "non-interactive" if runtime and runtime.options.non_interactive else "interactive"
     logging.getLogger(LOGGER_NAME).info("Clean command invoked (force=%s, mode=%s)", force, run_mode)
     CONSOLE.print(
         Panel(
