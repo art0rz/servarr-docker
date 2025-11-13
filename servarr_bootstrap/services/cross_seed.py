@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -60,8 +63,13 @@ class CrossSeedConfigurator:
             self.console.print("[magenta][dry-run][/magenta] Cross-Seed: would update config.js")
             return
 
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config_path.write_text(contents["text"], encoding="utf-8")
+        text = contents["text"]
+        try:
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            self.config_path.write_text(text, encoding="utf-8")
+        except PermissionError:
+            self.console.print("[yellow]Cross-Seed:[/] Host config not writable; updating via docker cp")
+            self._write_via_docker(text)
         self.console.print("[green]Cross-Seed:[/] Updated config.js")
 
     def _read_config(self) -> dict:
@@ -72,8 +80,9 @@ class CrossSeedConfigurator:
     def _replace_array(self, state: dict, key: str, values: Iterable[str]) -> bool:
         values = [v for v in values if v]
         formatted = self._format_array(values)
-        pattern = rf"({key}\\s*:\\s*\\[)(.*?)(\\],)"
-        new_text, count = re.subn(pattern, rf"\\1{formatted}\\3", state["text"], flags=re.S)
+        pattern = rf"({key}\s*:\s*\[)(.*?)(\](,?))"
+        replacement = rf"\1{formatted}\3"
+        new_text, count = re.subn(pattern, replacement, state["text"], flags=re.S)
         if count == 0:
             return False
         state["text"] = new_text
@@ -85,3 +94,18 @@ class CrossSeedConfigurator:
             return ""
         inner = ",\n".join(f"        \"{v}\"" for v in vals)
         return f"\n{inner}\n    "
+
+    def _write_via_docker(self, text: str) -> None:
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as tmp:
+            tmp.write(text)
+            tmp_path = tmp.name
+        try:
+            subprocess.run(
+                ["docker", "cp", tmp_path, "cross-seed:/config/config.js"],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise CrossSeedError(f"Failed to update Cross-Seed via docker cp: {exc.stderr}") from exc
+        finally:
+            os.remove(tmp_path)

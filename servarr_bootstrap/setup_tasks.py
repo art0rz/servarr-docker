@@ -80,6 +80,7 @@ def perform_setup(
             _ensure_media_dirs(media_dir, console, dry_run)
         if plan.fix_permissions:
             _apply_permissions(media_dir, puid, pgid, console, dry_run)
+            _apply_config_permissions(config_root, puid, pgid, console, dry_run)
 
     if plan.start_services:
         use_vpn_value = env.get("USE_VPN", "true").strip().lower()
@@ -142,6 +143,30 @@ def _apply_permissions(media_dir: Path, puid: Optional[str], pgid: Optional[str]
             LOGGER.warning("Permission denied while chowning %s. Run manually with sudo if needed.", target)
         except FileNotFoundError:
             continue
+
+
+def _apply_config_permissions(config_root: Path, puid: Optional[str], pgid: Optional[str], console: Console, dry_run: bool) -> None:
+    if not puid or not pgid:
+        return
+    try:
+        uid = int(puid)
+        gid = int(pgid)
+    except ValueError:
+        return
+    console.print(f"[cyan]Config:[/] {'[dry-run] ' if dry_run else ''}Ensuring ownership {uid}:{gid}")
+    if dry_run:
+        return
+    try:
+        os.chown(config_root, uid, gid)
+    except PermissionError:
+        LOGGER.warning("Permission denied while chowning %s. Run manually with sudo if needed.", config_root)
+    for root, dirs, files in os.walk(config_root):
+        for name in dirs + files:
+            path = Path(root) / name
+            try:
+                os.chown(path, uid, gid)
+            except PermissionError:
+                LOGGER.warning("Permission denied while chowning %s. Run manually with sudo if needed.", path)
 
 
 def _iter_permission_targets(media_dir: Path) -> Iterable[Path]:
