@@ -272,8 +272,8 @@ class IntegrationRunner:
         try:
             configurator.ensure_config(
                 torznab_urls=torznab_urls,
-                sonarr_urls=["http://sonarr:8989"],
-                radarr_urls=["http://radarr:7878"],
+                sonarr_urls=[f"http://sonarr:8989?apikey={self.arr_api_keys.get('sonarr', '')}"],
+                radarr_urls=[f"http://radarr:7878?apikey={self.arr_api_keys.get('radarr', '')}"],
                 torrent_clients=torrent_clients,
             )
         except CrossSeedError as exc:
