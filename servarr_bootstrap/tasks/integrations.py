@@ -10,8 +10,9 @@ from typing import List
 from rich.console import Console
 
 from ..config import RuntimeContext
-from ..services.api_keys import ApiKeyError, read_arr_api_key
+from ..services.api_keys import ApiKeyError, read_arr_api_key, read_prowlarr_api_key
 from ..services.arr import ArrClient, ArrClientError, QbittorrentConfig
+from ..services.prowlarr import ProwlarrClient, ProwlarrClientError
 from ..services.qbittorrent import QbitClient, QbitClientError
 
 LOGGER = logging.getLogger("servarr.bootstrap.integrations")
@@ -28,6 +29,12 @@ class ArrTarget:
     port_env: str
     category_env: str
     default_category: str
+
+    def default_port(self) -> int:
+        return 8989 if self.service_key == "sonarr" else 7878
+
+    def prowlarr_implementation(self) -> str:
+        return self.name
 
 
 ARR_TARGETS: List[ArrTarget] = [
@@ -49,9 +56,10 @@ ARR_TARGETS: List[ArrTarget] = [
 
 
 def run_integration_tasks(root_dir: Path, runtime: RuntimeContext, console: Console) -> None:
-    runner = IntegrationRunner(root_dir, runtime, console)
-    runner.configure_qbittorrent()
-    runner.configure_arr_clients()
+        runner = IntegrationRunner(root_dir, runtime, console)
+        runner.configure_qbittorrent()
+        runner.configure_arr_clients()
+        runner.configure_prowlarr_applications()
 
 
 class IntegrationRunner:
@@ -103,6 +111,38 @@ class IntegrationRunner:
                     )
                 )
             except ArrClientError as exc:
+                raise IntegrationError(str(exc)) from exc
+
+    def configure_prowlarr_applications(self) -> None:
+        try:
+            prowlarr_key = read_prowlarr_api_key(self.root_dir)
+        except ApiKeyError as exc:
+            raise IntegrationError(str(exc)) from exc
+
+        prowlarr_url_internal = f"http://prowlarr:{self._int_env('PROWLARR_PORT', 9696)}"
+        client = ProwlarrClient(
+            base_url=f"http://127.0.0.1:{self._int_env('PROWLARR_PORT', 9696)}",
+            api_key=prowlarr_key,
+            console=self.console,
+            dry_run=self.runtime.options.dry_run,
+        )
+
+        for target in ARR_TARGETS:
+            try:
+                api_key = read_arr_api_key(self.root_dir, target.service_key)
+            except ApiKeyError as exc:
+                raise IntegrationError(str(exc)) from exc
+
+            arr_port = self._int_env(target.port_env, target.default_port())
+            arr_internal_url = f"http://{target.service_key}:{arr_port}"
+            fields = {
+                "prowlarrUrl": prowlarr_url_internal,
+                "baseUrl": arr_internal_url,
+                "apiKey": api_key,
+            }
+            try:
+                client.ensure_application(target.prowlarr_implementation(), fields)
+            except ProwlarrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
 
     def _int_env(self, key: str, default: int) -> int:

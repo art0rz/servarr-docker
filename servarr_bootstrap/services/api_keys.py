@@ -13,9 +13,17 @@ class ApiKeyError(RuntimeError):
 
 def read_arr_api_key(root_dir: Path, service: str) -> str:
     """Read the API key for a given Arr service from its config.xml file."""
-    config_path = root_dir / "config" / service / "config.xml"
+    return _read_api_key(root_dir / "config" / service / "config.xml")
+
+
+def read_prowlarr_api_key(root_dir: Path) -> str:
+    """Read the API key for Prowlarr."""
+    return _read_api_key(root_dir / "config" / "prowlarr" / "config.xml")
+
+
+def _read_api_key(config_path: Path) -> str:
     if not config_path.exists():
-        raise ApiKeyError(f"Config file not found for {service} at {config_path}")
+        raise ApiKeyError(f"Config file not found at {config_path}")
 
     try:
         tree = ET.parse(config_path)
