@@ -61,7 +61,9 @@ class BazarrClient:
             username, password = credentials
             payload["settings-auth-username"] = username
             payload["settings-auth-password"] = password
-            payload["settings-auth-type"] = "forms"
+            payload["settings-auth-type"] = "form"
+        else:
+            payload["settings-auth-type"] = "none"
 
         if self.dry_run:
             self.console.print("[magenta][dry-run][/magenta] Would POST Bazarr settings payload")
