@@ -18,6 +18,7 @@ from .cleaner import CleanError, CleanPlan, perform_clean
 from .config import ConfigError, RuntimeContext, RuntimeOptions, build_runtime_context
 from .sanity import run_sanity_scan, render_report
 from .setup_tasks import SetupError, perform_setup
+from .tasks.integrations import IntegrationError, run_integration_tasks
 
 APP = typer.Typer(add_completion=False, invoke_without_command=True, help="Servarr bootstrapper (under construction)")
 CONSOLE = Console()
@@ -239,7 +240,8 @@ def _execute_sanity_and_stub(runtime: RuntimeContext) -> None:
     render_report(report, CONSOLE)
     try:
         perform_setup(ROOT_DIR, runtime, CONSOLE)
-    except SetupError as exc:
+        run_integration_tasks(ROOT_DIR, runtime, CONSOLE)
+    except (SetupError, IntegrationError) as exc:
         CONSOLE.print(f"[bold red]Setup failed:[/bold red] {exc}")
         raise typer.Exit(code=1) from exc
     run_stub(runtime)
