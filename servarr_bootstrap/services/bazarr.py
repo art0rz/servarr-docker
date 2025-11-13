@@ -6,7 +6,9 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+import time
 import requests
+from requests import ConnectionError as RequestsConnectionError
 from rich.console import Console
 
 LOGGER = logging.getLogger("servarr.bootstrap.bazarr")
@@ -69,13 +71,21 @@ class BazarrClient:
             self.console.print("[magenta][dry-run][/magenta] Would POST Bazarr settings payload")
             return
 
-        response = self.session.post(
-            f"{self.base_url}/api/system/settings",
-            data=payload,
-            timeout=15,
-        )
-        if response.status_code >= 400:
-            raise BazarrClientError(f"Failed to apply Bazarr settings: {response.status_code} {response.text}")
+        url = f"{self.base_url}/api/system/settings"
+        for attempt in range(1, 4):
+            try:
+                response = self.session.post(url, data=payload, timeout=15)
+                if response.status_code >= 400:
+                    raise BazarrClientError(
+                        f"Failed to apply Bazarr settings: {response.status_code} {response.text}"
+                    )
+                break
+            except (RequestsConnectionError, BazarrClientError) as exc:
+                if attempt == 3:
+                    raise BazarrClientError(f"Bazarr settings request failed: {exc}") from exc
+                LOGGER.warning("Bazarr settings request failed (attempt %s): %s", attempt, exc)
+                time.sleep(2)
+
         self.console.print("[green]Bazarr:[/] Sonarr/Radarr integrations configured")
 def _format_bool(value: bool) -> str:
     return "true" if value else "false"
