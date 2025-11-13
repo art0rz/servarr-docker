@@ -30,16 +30,18 @@ module.exports = {
     linkType: "hardlink",
     flatLinking: false,
     matchMode: "partial",
+    seasonFromEpisodes: null,
 };
 """
 
 
 class CrossSeedConfigurator:
-    def __init__(self, root_dir: Path, console: Console, dry_run: bool) -> None:
+    def __init__(self, root_dir: Path, console: Console, dry_run: bool, link_dir: Path) -> None:
         self.root_dir = root_dir
         self.console = console
         self.dry_run = dry_run
         self.config_path = self.root_dir / "config" / "cross-seed" / "config.js"
+        self.link_dir = link_dir
 
     def ensure_config(
         self,
@@ -54,6 +56,10 @@ class CrossSeedConfigurator:
         updated |= self._replace_array(contents, "sonarr", sonarr_urls)
         updated |= self._replace_array(contents, "radarr", radarr_urls)
         updated |= self._replace_array(contents, "torrentClients", torrent_clients)
+        link_dir = torznab_urls and torznab_urls[0]
+        updated |= self._replace_array(contents, "linkDirs", [self.link_dir])
+        contents["text"], change = self._replace_scalar(contents["text"], "seasonFromEpisodes", "null")
+        updated |= change
 
         if not updated:
             self.console.print("[green]Cross-Seed:[/] Configuration already up to date")
@@ -87,6 +93,11 @@ class CrossSeedConfigurator:
             return False
         state["text"] = new_text
         return True
+
+    def _replace_scalar(self, text: str, key: str, value: str) -> tuple[str, bool]:
+        pattern = rf"({key}\s*:\s*)(.*?)(,)"
+        new_text, count = re.subn(pattern, rf"\1{value}\3", text)
+        return new_text, count > 0
 
     def _format_array(self, values: Iterable[str]) -> str:
         vals = list(values)

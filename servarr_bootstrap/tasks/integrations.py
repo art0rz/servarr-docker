@@ -266,7 +266,9 @@ class IntegrationRunner:
         else:
             self.console.print("[yellow]Cross-Seed:[/] Skipping torrent client config (no credentials)")
 
-        configurator = CrossSeedConfigurator(self.root_dir, self.console, self.runtime.options.dry_run)
+        media_dir = Path(self.env.get("MEDIA_DIR", "/mnt/media"))
+        link_dir = media_dir / "downloads" / "cross-seeds"
+        configurator = CrossSeedConfigurator(self.root_dir, self.console, self.runtime.options.dry_run, link_dir=link_dir)
         try:
             configurator.ensure_config(
                 torznab_urls=torznab_urls,
