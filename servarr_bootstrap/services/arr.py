@@ -40,9 +40,8 @@ class ArrClient:
 
     def ensure_qbittorrent_download_client(self, config: QbittorrentConfig) -> None:
         """Ensure qBittorrent is configured as a download client."""
-        self.console.print(f"[cyan]{self.name}:[/] ensuring qBittorrent download client configuration")
         if self.dry_run:
-            self.console.print(f"[magenta][dry-run][/magenta] Would verify/create qBittorrent client in {self.name}")
+            self.console.print(f"[magenta][dry-run][/magenta] {self.name}: would ensure qBittorrent download client")
             return
 
         clients = self._request("GET", "/api/v3/downloadclient").json()
@@ -52,10 +51,9 @@ class ArrClient:
         if existing:
             payload["id"] = existing["id"]
             self._request("PUT", f"/api/v3/downloadclient/{existing['id']}", json=payload)
-            self.console.print(f"[green]{self.name}:[/] Updated qBittorrent download client")
         else:
             self._request("POST", "/api/v3/downloadclient", json=payload)
-            self.console.print(f"[green]{self.name}:[/] Added qBittorrent download client")
+        self.console.print(f"[green]{self.name}:[/] qBittorrent download client synchronized")
 
     def ensure_ui_credentials(self, username: Optional[str], password: Optional[str]) -> None:
         """Ensure the Arr UI requires login with the shared credentials."""
@@ -73,7 +71,6 @@ class ArrClient:
             or host_config.get("username") != username
         )
         if not needs_update:
-            self.console.print(f"[green]{self.name}:[/] UI credentials already configured")
             return
 
         payload = host_config.copy()

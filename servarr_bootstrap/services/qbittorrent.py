@@ -33,7 +33,11 @@ class QbitClient:
     ) -> None:
         """Ensure qBittorrent is configured with the provided credentials and bypass settings."""
         if not desired_username or not desired_password:
-            self.console.print("[yellow]Skipping qBittorrent credential sync (no username/password provided).[/yellow]")
+            self.console.print("[yellow]qBittorrent:[/] Skipping credential sync (no username/password)")
+            return
+
+        if self.dry_run:
+            self.console.print("[magenta][dry-run][/magenta] qBittorrent: would configure credentials and LAN bypass")
             return
 
         login_success = self._attempt_login(desired_username, desired_password)
@@ -43,7 +47,7 @@ class QbitClient:
             temp_creds = self._read_temp_credentials()
             if temp_creds:
                 temp_user, temp_pass = temp_creds
-                self.console.print("[cyan]qBittorrent:[/] Trying temporary credentials from container logs")
+                LOGGER.info("Trying qBittorrent temporary credentials from container logs")
                 login_success = self._attempt_login(temp_user, temp_pass)
                 current_label = "temporary credentials" if login_success else current_label
 
@@ -55,17 +59,14 @@ class QbitClient:
             raise QbitClientError("Unable to authenticate with qBittorrent; cannot configure preferences.")
 
         if current_label != "bootstrap credentials":
-            self.console.print("[cyan]qBittorrent:[/] Updating WebUI credentials to bootstrap user")
+            LOGGER.info("Updating qBittorrent WebUI credentials to bootstrap user")
             self._set_preferences(
                 {
                     "web_ui_username": desired_username,
                     "web_ui_password": desired_password,
                 }
             )
-            # Re-authenticate using the desired credentials to refresh the session.
             self._attempt_login(desired_username, desired_password)
-        else:
-            self.console.print("[green]qBittorrent:[/] Credentials already match bootstrap user")
 
         subnet_whitelist = "127.0.0.1/32\n172.18.0.0/16\n172.19.0.0/16"
         if lan_subnet:
@@ -80,7 +81,7 @@ class QbitClient:
                 "bypass_auth_subnet_whitelist": subnet_whitelist,
             }
         )
-        self.console.print("[green]qBittorrent:[/] Authentication bypass configured for LAN + Docker networks")
+        self.console.print("[green]qBittorrent:[/] Credentials synchronized and LAN bypass configured")
 
     def _attempt_login(self, username: str, password: str) -> bool:
         if self.dry_run:

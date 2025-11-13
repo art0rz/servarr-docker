@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from dataclasses import replace
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import typer
 from rich.console import Console
@@ -53,6 +53,10 @@ def configure_logging(verbose: bool) -> Path:
         force=True,
     )
 
+    if not verbose:
+        for noisy in ("urllib3", "requests", "docker"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
+
     latest_link = LOG_DIR / "bootstrap-latest.log"
     try:
         if latest_link.is_symlink() or latest_link.exists():
@@ -63,33 +67,6 @@ def configure_logging(verbose: bool) -> Path:
 
     logging.getLogger(LOGGER_NAME).debug("Logging initialized at %s", log_file)
     return log_file
-
-
-def run_stub(runtime: RuntimeContext) -> None:
-    """Temporary placeholder until the real bootstrap tasks are implemented."""
-    logger = logging.getLogger(LOGGER_NAME)
-    table = Table(title="Bootstrap Context", show_header=False, box=None)
-    table.add_row("Dry run", str(runtime.options.dry_run))
-    table.add_row("Non-interactive", str(runtime.options.non_interactive))
-    table.add_row("CI mode detected", str(runtime.ci))
-    env_file_display = runtime.env.env_file.as_posix() if runtime.env.env_file else "Not found"
-    table.add_row(".env path", env_file_display)
-    table.add_row("Username", runtime.credentials.username or "<not set>")
-    table.add_row("Password provided", "Yes" if runtime.credentials.password else "No")
-    CONSOLE.print(table)
-    CONSOLE.print(
-        Panel(
-            "The new Python bootstrapper is under active development.\n"
-            "Use `./bootstrap.sh legacy` for the current production workflow.",
-            title="Status",
-            border_style="yellow",
-        )
-    )
-    logger.info(
-        "Python bootstrap stub executed (dry_run=%s, non_interactive=%s)",
-        runtime.options.dry_run,
-        runtime.options.non_interactive,
-    )
 
 
 def _store_context(ctx: typer.Context, **kwargs: Any) -> Dict[str, Any]:
@@ -114,7 +91,7 @@ def main(
 
     if ctx.invoked_subcommand is None:
         runtime = _ensure_runtime_context(ctx, require_credentials=True)
-        _execute_sanity_and_stub(runtime)
+        _execute_sanity_and_stub(runtime, ctx.obj.get("log_path"))
         raise typer.Exit(code=0)
 
 
@@ -153,7 +130,7 @@ def run(
     )
     context["options"] = merged_options
     runtime = _ensure_runtime_context(ctx, require_credentials=True)
-    _execute_sanity_and_stub(runtime)
+    _execute_sanity_and_stub(runtime, ctx.obj.get("log_path"))
 
 
 @APP.command()
@@ -234,7 +211,7 @@ def run_app() -> None:
     APP()
 
 
-def _execute_sanity_and_stub(runtime: RuntimeContext) -> None:
+def _execute_sanity_and_stub(runtime: RuntimeContext, log_path: Optional[str]) -> None:
     """Run the sanity scan before executing the placeholder workflow."""
     report = run_sanity_scan(ROOT_DIR, runtime)
     render_report(report, CONSOLE)
@@ -244,4 +221,21 @@ def _execute_sanity_and_stub(runtime: RuntimeContext) -> None:
     except (SetupError, IntegrationError) as exc:
         CONSOLE.print(f"[bold red]Setup failed:[/bold red] {exc}")
         raise typer.Exit(code=1) from exc
-    run_stub(runtime)
+    _print_completion(runtime, log_path)
+
+
+def _print_completion(runtime: RuntimeContext, log_path: Optional[str]) -> None:
+    summary_table = Table(title="Bootstrap Summary", show_header=False, box=None)
+    summary_table.add_row("Mode", "DRY RUN" if runtime.options.dry_run else "Live run")
+    summary_table.add_row("Non-interactive", "Yes" if runtime.options.non_interactive else "No")
+    env_file_display = runtime.env.env_file.as_posix() if runtime.env.env_file else "Not found"
+    summary_table.add_row(".env path", env_file_display)
+    summary_table.add_row("Log file", str(log_path or (LOG_DIR / "bootstrap-latest.log")))
+    CONSOLE.print(summary_table)
+    CONSOLE.print(
+        Panel(
+            "Setup finished. Need the legacy flow? Run `./bootstrap.sh legacy`.\n"
+            "Review the log for detailed actions.",
+            border_style="green",
+        )
+    )
