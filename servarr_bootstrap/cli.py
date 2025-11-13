@@ -157,7 +157,14 @@ def run(
 @APP.command()
 def clean(
     ctx: typer.Context,
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompts."),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        "--yes",
+        "-y",
+        help="Skip confirmation prompts (auto-answer yes).",
+    ),
     purge_logs: bool = typer.Option(False, "--purge-logs", help="Remove bootstrap log files."),
     purge_venv: bool = typer.Option(False, "--purge-venv", help="Delete the Python virtual environment (.venv)."),
 ) -> None:
