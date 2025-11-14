@@ -37,6 +37,7 @@ class ArrTarget:
     port_env: str
     category_env: str
     default_category: str
+    media_subdir: str
 
     def default_port(self) -> int:
         return 8989 if self.service_key == "sonarr" else 7878
@@ -52,6 +53,7 @@ ARR_TARGETS: List[ArrTarget] = [
         port_env="SONARR_PORT",
         category_env="SONARR_QBIT_CATEGORY",
         default_category="sonarr-tv",
+        media_subdir="tv",
     ),
     ArrTarget(
         name="Radarr",
@@ -59,6 +61,7 @@ ARR_TARGETS: List[ArrTarget] = [
         port_env="RADARR_PORT",
         category_env="RADARR_QBIT_CATEGORY",
         default_category="radarr-movies",
+        media_subdir="movies",
     ),
 ]
 
@@ -104,6 +107,7 @@ class IntegrationRunner:
         use_vpn = self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"}
         qbit_host = "gluetun" if use_vpn else "qbittorrent"
         qbit_port = self._int_env("QBIT_WEBUI", 8080)
+        media_root = Path(self.env.get("MEDIA_DIR", "/mnt/media"))
 
         for target in ARR_TARGETS:
             try:
@@ -127,6 +131,7 @@ class IntegrationRunner:
                         category=category,
                     )
                 )
+                arr_client.ensure_root_folder(media_root / target.media_subdir)
             except ArrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
 

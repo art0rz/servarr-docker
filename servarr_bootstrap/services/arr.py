@@ -6,6 +6,7 @@ import copy
 import json
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -25,6 +26,10 @@ class QbittorrentConfig:
     username: str
     password: str
     category: str
+
+
+def _normalize_path(path: str | Path) -> str:
+    return Path(path).as_posix().rstrip("/") or "/"
 
 
 class ArrClient:
@@ -85,6 +90,22 @@ class ArrClient:
         )
         self._request("PUT", "/api/v3/config/host", json=payload)
         self.console.print(f"[green]{self.name}:[/] UI credentials configured")
+
+    def ensure_root_folder(self, path: Path | str) -> None:
+        target = _normalize_path(path)
+
+        if self.dry_run:
+            self.console.print(f"[magenta][dry-run][/magenta] {self.name}: would ensure root folder {target}")
+            return
+
+        folders = self._request("GET", "/api/v3/rootfolder").json()
+        for folder in folders:
+            existing = folder.get("path")
+            if existing and _normalize_path(existing) == target:
+                return
+
+        self._request("POST", "/api/v3/rootfolder", json={"path": target})
+        self.console.print(f"[green]{self.name}:[/] Root folder registered at {target}")
 
     def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
         url = f"{self.base_url}{path}"
