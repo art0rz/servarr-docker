@@ -102,7 +102,7 @@ class QbitClient:
             "append_label_to_save_path": False,
             "dht": False,
             "pex": False,
-            "lpd": False,
+            "lsd": False,
         }
         category_paths = {
             "movies": completed_dir / "movies",
