@@ -370,3 +370,50 @@ class EnvSetupTests(unittest.TestCase):
             text = env_file.read_text()
             self.assertIn("SERVER_REGIONS=EMEA", text)
             self.assertIn("SERVER_CITIES=Stockholm", text)
+
+    def test_invalid_port_is_reprompted(self):
+        console = Console(record=True)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env_path = root / ".env"
+            env_path.write_text(
+                "\n".join(
+                    [
+                        "MEDIA_DIR=/data",
+                        "PUID=1000",
+                        "PGID=1000",
+                        "LAN_SUBNET=10.0.0.0/24",
+                        "TZ=UTC",
+                        "SERVARR_USERNAME=user",
+                        "SERVARR_PASSWORD=pass",
+                        "USE_VPN=true",
+                        "VPN_SERVICE_PROVIDER=mullvad",
+                        "VPN_TYPE=wireguard",
+                        "WIREGUARD_PRIVATE_KEY=priv",
+                        "WIREGUARD_ADDRESSES=10.0.0.2/32",
+                        "WIREGUARD_ADVANCED_ENABLED=n",
+                        "VPN_FILTERS_ENABLED=n",
+                        "VPN_HOSTNAME_FILTERS_ENABLED=n",
+                        "VPN_PORT_FORWARDING_ENABLED=n",
+                        "PROWLARR_PORT=9696",
+                        "SONARR_PORT=8989",
+                        "RADARR_PORT=7878",
+                        "BAZARR_PORT=6767",
+                        "FLARESOLVERR_PORT=8191",
+                        "CROSS_SEED_PORT=2468",
+                        "HEALTH_PORT=3000",
+                    ]
+                )
+                + "\n"
+            )
+            prompt_values = ["notaport", "8085"]
+            with patch("servarr_bootstrap.env_setup.typer.prompt", side_effect=prompt_values):
+                interactive_env_setup(root, console)
+
+            env_file = root / ".env"
+            entries = {}
+            for line in env_file.read_text().splitlines():
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    entries[key] = value
+            self.assertEqual(entries["QBIT_WEBUI"], "8085")

@@ -101,7 +101,7 @@ def _ensure_runtime_context(ctx: typer.Context, *, require_credentials: bool) ->
     """Build (or rebuild) the runtime context using current options."""
     context = ctx.ensure_object(dict)
     options: RuntimeOptions = context.get("options", RuntimeOptions())
-    if not options.non_interactive and not context.get("_env_configured"):
+    if require_credentials and not options.non_interactive and not context.get("_env_configured"):
         interactive_env_setup(ROOT_DIR, CONSOLE)
         context["_env_configured"] = True
     try:

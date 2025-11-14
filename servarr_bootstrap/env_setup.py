@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, replace
 from datetime import datetime
+import ipaddress
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 try:  # pragma: no cover - only triggered in limited environments
     import typer
@@ -28,6 +29,7 @@ class EnvPrompt:
     secret: bool = False
     required: bool = True
     persist: bool = True
+    validator: Optional[Callable[[str], str]] = None
 
 
 @dataclass(frozen=True)
@@ -57,54 +59,146 @@ VPN_PORT_FORWARD_FLAG = "VPN_PORT_FORWARDING_ENABLED"
 WIREGUARD_ADVANCED_FLAG = "WIREGUARD_ADVANCED_ENABLED"
 VPN_LOCATION_EXTRA_FLAG = "VPN_LOCATION_EXTRA_ENABLED"
 
+
+def _validate_non_empty(value: str) -> str:
+    if not value:
+        raise ValueError("A value is required.")
+    return value
+
+
+def _validate_positive_int(value: str) -> str:
+    if not value.isdigit():
+        raise ValueError("Enter a positive integer.")
+    return value
+
+
+def _validate_port(value: str) -> str:
+    value = _validate_positive_int(value)
+    port = int(value)
+    if not 1 <= port <= 65535:
+        raise ValueError("Port must be between 1 and 65535.")
+    return str(port)
+
+
+def _validate_bool_true_false(value: str) -> str:
+    normalized = value.strip().lower()
+    truthy = {"true", "t", "yes", "y", "1"}
+    falsy = {"false", "f", "no", "n", "0"}
+    if normalized in truthy:
+        return "true"
+    if normalized in falsy:
+        return "false"
+    raise ValueError("Enter true or false (y/n accepted).")
+
+
+def _validate_yes_no(value: str) -> str:
+    normalized = value.strip().lower()
+    truthy = {"true", "t", "yes", "y", "1"}
+    falsy = {"false", "f", "no", "n", "0"}
+    if normalized in truthy:
+        return "y"
+    if normalized in falsy:
+        return "n"
+    raise ValueError("Enter y or n.")
+
+
+def _validate_vpn_type(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"wireguard", "wg"}:
+        return "wireguard"
+    if normalized == "openvpn":
+        return "openvpn"
+    raise ValueError("VPN type must be 'wireguard' or 'openvpn'.")
+
+
+def _validate_cidr(value: str) -> str:
+    try:
+        network = ipaddress.ip_network(value.strip(), strict=False)
+    except ValueError as exc:
+        raise ValueError("Enter a valid CIDR such as 192.168.1.0/24.") from exc
+    return str(network)
+
+
+def _validate_cidr_list(value: str) -> str:
+    parts = [part.strip() for part in value.split(",")]
+    if any(not part for part in parts):
+        raise ValueError("CIDR entries cannot be blank.")
+    normalized = []
+    for part in parts:
+        try:
+            network = ipaddress.ip_network(part, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"'{part}' is not a valid CIDR.") from exc
+        normalized.append(str(network))
+    return ",".join(normalized)
+
+
+def _validate_ip_address(value: str) -> str:
+    try:
+        ipaddress.ip_address(value.strip())
+    except ValueError as exc:
+        raise ValueError("Enter a valid IPv4 or IPv6 address.") from exc
+    return value.strip()
+
+
+def _validate_wg_implementation(value: str) -> str:
+    normalized = value.strip().lower()
+    if not normalized:
+        raise ValueError("WireGuard implementation cannot be blank.")
+    allowed = {"auto", "kernelspace", "userspace"}
+    if normalized not in allowed:
+        raise ValueError(f"Implementation must be one of: {', '.join(sorted(allowed))}.")
+    return normalized
+
 PROMPT_SECTIONS: List[PromptSection] = [
     PromptSection(
         "Storage & Network",
         "Where media lives and how containers reach your LAN.",
         [
-            EnvPrompt("MEDIA_DIR", "Media directory for downloads and library", "/mnt/media"),
-            EnvPrompt("PUID", "Container user ID (PUID)", _default_uid()),
-            EnvPrompt("PGID", "Container group ID (PGID)", _default_gid()),
-            EnvPrompt("LAN_SUBNET", "LAN subnet (CIDR) for allowlists", "192.168.1.0/24"),
-            EnvPrompt("TZ", "System timezone", "", required=True),
+            EnvPrompt("MEDIA_DIR", "Media directory for downloads and library", "/mnt/media", validator=_validate_non_empty),
+            EnvPrompt("PUID", "Container user ID (PUID)", _default_uid(), validator=_validate_positive_int),
+            EnvPrompt("PGID", "Container group ID (PGID)", _default_gid(), validator=_validate_positive_int),
+            EnvPrompt("LAN_SUBNET", "LAN subnet (CIDR) for allowlists", "192.168.1.0/24", validator=_validate_cidr),
+            EnvPrompt("TZ", "System timezone", "", required=True, validator=_validate_non_empty),
         ],
     ),
     PromptSection(
         "Unified Credentials",
         "Shared username/password applied to Sonarr, Radarr, Prowlarr, Bazarr, and qBittorrent.",
         [
-            EnvPrompt("SERVARR_USERNAME", "Username for Sonarr/Radarr/Prowlarr/qBittorrent/Bazarr", "servarr"),
-            EnvPrompt("SERVARR_PASSWORD", "Password for Sonarr/Radarr/Prowlarr/qBittorrent/Bazarr", secret=True),
+            EnvPrompt("SERVARR_USERNAME", "Username for Sonarr/Radarr/Prowlarr/qBittorrent/Bazarr", "servarr", validator=_validate_non_empty),
+            EnvPrompt("SERVARR_PASSWORD", "Password for Sonarr/Radarr/Prowlarr/qBittorrent/Bazarr", secret=True, validator=_validate_non_empty),
         ],
     ),
     PromptSection(
         "VPN Basics",
         "Pick your VPN provider and protocol.",
         [
-            EnvPrompt("USE_VPN", "Use VPN tunnel? (true/false)", "true"),
-            EnvPrompt("VPN_SERVICE_PROVIDER", "VPN provider (gluetun supported value)", ""),
-            EnvPrompt("VPN_TYPE", "VPN protocol (wireguard/openvpn)", "wireguard"),
+            EnvPrompt("USE_VPN", "Use VPN tunnel? (y/n)", "y", validator=_validate_bool_true_false),
+            EnvPrompt("VPN_SERVICE_PROVIDER", "VPN provider (gluetun supported value)", "", validator=_validate_non_empty),
+            EnvPrompt("VPN_TYPE", "VPN protocol (wireguard/openvpn)", "wireguard", validator=_validate_vpn_type),
         ],
     ),
     PromptSection(
         "WireGuard Keys",
         "Required when VPN protocol is WireGuard.",
         [
-            EnvPrompt("WIREGUARD_PRIVATE_KEY", "WireGuard private key", secret=True),
-            EnvPrompt("WIREGUARD_ADDRESSES", "WireGuard interface addresses (CIDR)", ""),
+            EnvPrompt("WIREGUARD_PRIVATE_KEY", "WireGuard private key", secret=True, validator=_validate_non_empty),
+            EnvPrompt("WIREGUARD_ADDRESSES", "WireGuard interface addresses (CIDR)", "", validator=_validate_cidr_list),
             EnvPrompt(
                 WIREGUARD_ADVANCED_FLAG,
                 "Configure advanced WireGuard options? (y/n)",
                 "n",
                 required=False,
+                validator=_validate_yes_no,
             ),
             EnvPrompt("WIREGUARD_PUBLIC_KEY", "WireGuard server public key override", required=False, secret=True),
-            EnvPrompt("WIREGUARD_ENDPOINT_IP", "WireGuard endpoint IP override", required=False),
-            EnvPrompt("WIREGUARD_ENDPOINT_PORT", "WireGuard endpoint port override", required=False),
+            EnvPrompt("WIREGUARD_ENDPOINT_IP", "WireGuard endpoint IP override", required=False, validator=_validate_ip_address),
+            EnvPrompt("WIREGUARD_ENDPOINT_PORT", "WireGuard endpoint port override", required=False, validator=_validate_port),
             EnvPrompt("WIREGUARD_PRESHARED_KEY", "WireGuard pre-shared key", required=False, secret=True),
-            EnvPrompt("WIREGUARD_ALLOWED_IPS", "WireGuard allowed IPs override", required=False),
-            EnvPrompt("WIREGUARD_IMPLEMENTATION", "WireGuard implementation override", required=False),
-            EnvPrompt("WIREGUARD_MTU", "WireGuard MTU override", required=False),
+            EnvPrompt("WIREGUARD_ALLOWED_IPS", "WireGuard allowed IPs override", required=False, validator=_validate_cidr_list),
+            EnvPrompt("WIREGUARD_IMPLEMENTATION", "WireGuard implementation override", required=False, validator=_validate_wg_implementation),
+            EnvPrompt("WIREGUARD_MTU", "WireGuard MTU override", required=False, validator=_validate_positive_int),
             EnvPrompt(
                 "WIREGUARD_PERSISTENT_KEEPALIVE_INTERVAL",
                 "WireGuard persistent keepalive interval",
@@ -121,6 +215,7 @@ PROMPT_SECTIONS: List[PromptSection] = [
                 "Restrict VPN servers by country/region? (y/n)",
                 "n",
                 required=False,
+                validator=_validate_yes_no,
             ),
             EnvPrompt("SERVER_COUNTRIES", "Preferred VPN countries", required=False),
             EnvPrompt(
@@ -128,6 +223,7 @@ PROMPT_SECTIONS: List[PromptSection] = [
                 "Add region/city filters without a country? (y/n)",
                 "n",
                 required=False,
+                validator=_validate_yes_no,
             ),
             EnvPrompt("SERVER_REGIONS", "Preferred VPN regions", required=False),
             EnvPrompt("SERVER_CITIES", "Preferred VPN cities", required=False),
@@ -142,6 +238,7 @@ PROMPT_SECTIONS: List[PromptSection] = [
                 "Restrict VPN servers to specific hostnames? (y/n)",
                 "n",
                 required=False,
+                validator=_validate_yes_no,
             ),
             EnvPrompt("SERVER_HOSTNAMES", "Specific VPN hostnames", required=False),
             EnvPrompt("SERVER_NAMES", "Specific VPN server names", required=False),
@@ -150,6 +247,7 @@ PROMPT_SECTIONS: List[PromptSection] = [
                 "Enable VPN port forwarding? (y/n)",
                 "n",
                 required=False,
+                validator=_validate_yes_no,
             ),
             EnvPrompt("PORT_FORWARDING_PROVIDER", "Port forwarding provider", required=False),
         ],
@@ -158,14 +256,14 @@ PROMPT_SECTIONS: List[PromptSection] = [
         "Application Ports",
         "Expose the container UIs on your host.",
         [
-            EnvPrompt("QBIT_WEBUI", "qBittorrent WebUI port", "8080"),
-            EnvPrompt("PROWLARR_PORT", "Prowlarr port", "9696"),
-            EnvPrompt("SONARR_PORT", "Sonarr port", "8989"),
-            EnvPrompt("RADARR_PORT", "Radarr port", "7878"),
-            EnvPrompt("BAZARR_PORT", "Bazarr port", "6767"),
-            EnvPrompt("FLARESOLVERR_PORT", "FlareSolverr port", "8191"),
-            EnvPrompt("CROSS_SEED_PORT", "Cross-seed port", "2468"),
-            EnvPrompt("HEALTH_PORT", "Health server port", "3000"),
+            EnvPrompt("QBIT_WEBUI", "qBittorrent WebUI port", "8080", validator=_validate_port),
+            EnvPrompt("PROWLARR_PORT", "Prowlarr port", "9696", validator=_validate_port),
+            EnvPrompt("SONARR_PORT", "Sonarr port", "8989", validator=_validate_port),
+            EnvPrompt("RADARR_PORT", "Radarr port", "7878", validator=_validate_port),
+            EnvPrompt("BAZARR_PORT", "Bazarr port", "6767", validator=_validate_port),
+            EnvPrompt("FLARESOLVERR_PORT", "FlareSolverr port", "8191", validator=_validate_port),
+            EnvPrompt("CROSS_SEED_PORT", "Cross-seed port", "2468", validator=_validate_port),
+            EnvPrompt("HEALTH_PORT", "Health server port", "3000", validator=_validate_port),
         ],
     ),
 ]
@@ -272,15 +370,22 @@ def _prompt_value(prompt: EnvPrompt, console: Console) -> str:
         default = ""
         show_default = False
     while True:
-        value = typer.prompt(
+        raw_value = typer.prompt(
             prompt.message,
             default=default,
             show_default=show_default,
             hide_input=prompt.secret,
         ).strip()
-        if value or not prompt.required:
-            return value
-        console.print("[red]A value is required.[/red]")
+        if not raw_value:
+            if prompt.required:
+                console.print("[red]A value is required.[/red]")
+                continue
+            return ""
+        try:
+            return prompt.validator(raw_value) if prompt.validator else raw_value
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            continue
 
 
 def _should_prompt(key: str, values: Dict[str, str]) -> bool:
@@ -353,6 +458,7 @@ def _with_timezone_default(sections: List[PromptSection], tz: str) -> List[Promp
                 prompts.append(prompt)
         updated.append(PromptSection(section.title, section.description, prompts))
     return updated
+
 
 def _flag_truthy(value: Optional[str]) -> bool:
     if value is None:
