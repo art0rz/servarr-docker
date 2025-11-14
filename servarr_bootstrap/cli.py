@@ -50,17 +50,16 @@ def configure_logging(verbose: bool) -> Path:
         logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
     )
 
-    console_handler = RichHandler(
-        console=CONSOLE,
-        show_time=False,
-        show_path=False,
-        rich_tracebacks=False,
-    )
-    console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
-
     logging.basicConfig(level=logging.DEBUG, handlers=[file_handler], force=True)
-    logger = logging.getLogger(LOGGER_NAME)
-    logger.addHandler(console_handler)
+    if verbose:
+        console_handler = RichHandler(
+            console=CONSOLE,
+            show_time=False,
+            show_path=False,
+            rich_tracebacks=False,
+        )
+        console_handler.setLevel(logging.DEBUG)
+        logging.getLogger().addHandler(console_handler)
 
     if not verbose:
         for noisy in ("urllib3", "requests", "docker"):
@@ -115,6 +114,8 @@ def _render_clean_table(steps: OrderedDict[str, Dict[str, str]]) -> Table:
     return table
 
 
+
+
 @APP.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -131,7 +132,7 @@ def main(
 
     if ctx.invoked_subcommand is None:
         runtime = _ensure_runtime_context(ctx, require_credentials=True)
-        _execute_sanity_and_stub(runtime, ctx.obj.get("log_path"))
+        _execute_bootstrap_flow(runtime, ctx.obj.get("log_path"))
         raise typer.Exit(code=0)
 
 
@@ -173,7 +174,7 @@ def run(
     )
     context["options"] = merged_options
     runtime = _ensure_runtime_context(ctx, require_credentials=True)
-    _execute_sanity_and_stub(runtime, ctx.obj.get("log_path"))
+    _execute_bootstrap_flow(runtime, ctx.obj.get("log_path"))
 
 
 @APP.command()
@@ -290,22 +291,22 @@ def run_app() -> None:
         raise typer.Exit(code=1) from exc
 
 
-def _execute_sanity_and_stub(runtime: RuntimeContext, log_path: Optional[str]) -> None:
-    """Run the sanity scan before executing the placeholder workflow."""
-    try:
-        report = run_sanity_scan(ROOT_DIR, runtime)
-        render_report(report, CONSOLE)
-    except Exception as exc:
-        LOGGER.exception("Environment check failed")
-        CONSOLE.print(f"[bold red]Environment check failed:[/bold red] {exc}")
-        CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
-        raise typer.Exit(code=1) from exc
+def _execute_bootstrap_flow(runtime: RuntimeContext, log_path: Optional[str]) -> None:
+    """Execute setup/integration flow followed by the final sanity scan."""
     try:
         perform_setup(ROOT_DIR, runtime, CONSOLE)
         run_integration_tasks(ROOT_DIR, runtime, CONSOLE)
     except (SetupError, IntegrationError) as exc:
         LOGGER.exception("Setup failed")
         CONSOLE.print(f"[bold red]Setup failed:[/bold red] {exc}")
+        CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
+        raise typer.Exit(code=1) from exc
+    try:
+        report = run_sanity_scan(ROOT_DIR, runtime)
+        render_report(report, CONSOLE)
+    except Exception as exc:
+        LOGGER.exception("Environment check failed")
+        CONSOLE.print(f"[bold red]Environment check failed:[/bold red] {exc}")
         CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
         raise typer.Exit(code=1) from exc
     _print_completion(runtime, log_path)

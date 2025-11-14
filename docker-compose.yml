@@ -30,6 +30,7 @@ services:
       - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNET} # allow talking to LAN services
     volumes:
       - gluetun:/gluetun
+      - gluetun-tmp:/tmp/gluetun
     profiles:
       - vpn
 
@@ -85,42 +86,41 @@ services:
       - no-vpn
 
   pf-sync:
-    image: alpine:3.20
+    image: curlimages/curl:latest
     container_name: pf-sync
     depends_on: [gluetun, qbittorrent-vpn]
     restart: unless-stopped
     network_mode: "service:gluetun"             # share namespace with qBit
+    volumes:
+      - gluetun:/gluetun
+      - gluetun-tmp:/tmp/gluetun
     environment:
       QBIT_URL: http://127.0.0.1:${QBIT_WEBUI}
-    entrypoint: ["/bin/sh","-c"]
-    command: |
-      apk add --no-cache curl jq >/dev/null
-      JAR=/tmp/c.jar
-      login() {
-        curl -s -c "$$JAR" -H "Referer: $$QBIT_URL/" -H "Origin: $$QBIT_URL" \
-          --data "username=$$QBIT_USER&password=$$QBIT_PASS" \
-          "$$QBIT_URL/api/v2/auth/login" >/dev/null
-      }
-      set_pref() {
-        curl -s -b "$$JAR" -H "Referer: $$QBIT_URL/" -H "Origin: $$QBIT_URL" \
-          -H "Content-Type: application/x-www-form-urlencoded" \
-          --data-urlencode "json={\"listen_port\":$$1}" \
-          "$$QBIT_URL/api/v2/app/setPreferences" >/dev/null
-      }
-      while :; do
-        if [ -f /tmp/gluetun/forwarded_port ]; then
-          P=$$(cat /tmp/gluetun/forwarded_port 2>/dev/null || true)
-          case "$$P" in
-            ''|*[!0-9]*) ;;
-            *)
-              echo "Forwarded port: $$P"
-              login
-              set_pref "$$P"
-              ;;
-          esac
-        fi
-        sleep 30
-      done
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        set_pref() {
+          echo "[pf-sync] Setting qBittorrent listen port to $$1"
+          curl -sS -H "Referer: $$QBIT_URL/" -H "Origin: $$QBIT_URL" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "json={\"listen_port\":$$1}" \
+            "$$QBIT_URL/api/v2/app/setPreferences"
+        }
+        while :; do
+          if [ -f /tmp/gluetun/forwarded_port ]; then
+            P=$$(cat /tmp/gluetun/forwarded_port 2>/dev/null || true)
+            case "$$P" in
+              ''|*[!0-9]*) ;;
+              *)
+                echo "[pf-sync] Forwarded port: $$P"
+                set_pref "$$P"
+                ;;
+            esac
+          fi
+          sleep 10
+        done
     profiles:
       - vpn
 
@@ -328,3 +328,4 @@ networks:
 
 volumes:
   gluetun:
+  gluetun-tmp:

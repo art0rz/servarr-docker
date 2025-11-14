@@ -283,6 +283,44 @@ class EnvSetupTests(unittest.TestCase):
             self.assertIn("VPN_PORT_FORWARDING_ENABLED=y", text)
             self.assertIn("PORT_FORWARDING_PROVIDER=gluetun", text)
 
+    def test_prompts_openvpn_credentials_when_selected(self):
+        console = Console(record=True)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt_values = [
+                "/data/media",
+                "2000",
+                "2000",
+                "10.0.0.0/24",
+                "UTC",
+                "admin",
+                "changeme",
+                "true",
+                "mullvad",
+                "openvpn",
+                "ovpnuser",
+                "ovpnpass",
+                "n",  # no filters
+                "n",  # hostnames
+                "n",  # port forwarding
+                "8081",
+                "9700",
+                "8990",
+                "7880",
+                "6770",
+                "8200",
+                "2500",
+                "3100",
+            ]
+            with patch("servarr_bootstrap.env_setup.typer.prompt", side_effect=prompt_values), patch(
+                "servarr_bootstrap.env_setup.detect_timezone", return_value="UTC"
+            ):
+                interactive_env_setup(root, console)
+
+            env_text = root.joinpath(".env").read_text()
+            self.assertIn("OPENVPN_USER=ovpnuser", env_text)
+            self.assertIn("OPENVPN_PASSWORD=ovpnpass", env_text)
+            self.assertNotIn("WIREGUARD_PRIVATE_KEY", env_text)
     def test_skips_region_city_when_country_blank_by_default(self):
         console = Console(record=True)
         with TemporaryDirectory() as tmp:

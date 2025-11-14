@@ -7,6 +7,7 @@ import os
 import stat
 import subprocess
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +20,6 @@ from rich.table import Table
 
 from .cleaner import CommandRunner, run_command
 from .config import RuntimeContext
-from .sanity import render_report
 from .sanity import SERVICE_PROBES, ServiceProbe
 
 LOGGER = logging.getLogger("servarr.bootstrap.setup")
@@ -39,6 +39,13 @@ MEDIA_DIRECTORIES = (
     "tv",
     "movies",
 )
+START_STATUS_STYLES = {
+    "pending": "dim",
+    "running": "cyan",
+    "done": "green",
+    "skipped": "yellow",
+    "failed": "red",
+}
 
 
 class SetupError(RuntimeError):
@@ -100,27 +107,31 @@ def perform_setup(
 
 
 def _ensure_config_dirs(config_root: Path, console: Console, dry_run: bool) -> None:
+    created: List[str] = []
     for directory in CONFIG_DIRECTORIES:
         path = config_root / directory
         if path.exists():
             continue
         LOGGER.info("Creating config directory %s", path)
-        console.print(f"[cyan]Config:[/] {'[dry-run] ' if dry_run else ''}Creating {path}")
-        if dry_run:
-            continue
-        path.mkdir(parents=True, exist_ok=True)
+        if not dry_run:
+            path.mkdir(parents=True, exist_ok=True)
+        created.append(str(path))
+    if created:
+        console.print(f"[cyan]Config:[/] {'[dry-run] ' if dry_run else ''}Created {len(created)} directories")
 
 
 def _ensure_media_dirs(media_dir: Path, console: Console, dry_run: bool) -> None:
+    created: List[str] = []
     for relative in MEDIA_DIRECTORIES:
         target = media_dir / relative
         if target.exists():
             continue
         LOGGER.info("Creating media directory %s", target)
-        console.print(f"[cyan]Media:[/] {'[dry-run] ' if dry_run else ''}Creating {target}")
-        if dry_run:
-            continue
-        target.mkdir(parents=True, exist_ok=True)
+        if not dry_run:
+            target.mkdir(parents=True, exist_ok=True)
+        created.append(str(target))
+    if created:
+        console.print(f"[cyan]Media:[/] {'[dry-run] ' if dry_run else ''}Created {len(created)} directories")
 
 
 def _apply_permissions(media_dir: Path, puid: Optional[str], pgid: Optional[str], console: Console, dry_run: bool) -> None:
@@ -276,6 +287,31 @@ def _set_rw_recursive(root: Path) -> None:
                 continue
 
 
+def _init_start_steps(profile: str) -> OrderedDict[str, Dict[str, str]]:
+    return OrderedDict(
+        [
+            ("down_vpn", {"label": "Stop VPN profile", "status": "pending", "details": "Waiting"}),
+            ("down_no_vpn", {"label": "Stop no-vpn profile", "status": "pending", "details": "Waiting"}),
+            ("down_orphans", {"label": "Remove orphans", "status": "pending", "details": "Waiting"}),
+            ("build_health", {"label": "Build health service", "status": "pending", "details": "Waiting"}),
+            ("pull_profile", {"label": f"Pull ({profile})", "status": "pending", "details": "Waiting"}),
+            ("up_profile", {"label": f"Start ({profile})", "status": "pending", "details": "Waiting"}),
+        ]
+    )
+
+
+def _render_start_table(steps: OrderedDict[str, Dict[str, str]]) -> Table:
+    table = Table(title="Docker Progress")
+    table.add_column("Step", style="bold")
+    table.add_column("Status")
+    table.add_column("Details")
+    for data in steps.values():
+        status = data["status"]
+        color = START_STATUS_STYLES.get(status, "white")
+        table.add_row(data["label"], f"[{color}]{status.capitalize()}[/{color}]", data["details"])
+    return table
+
+
 def _start_services(
     root_dir: Path,
     use_vpn: bool,
@@ -288,7 +324,6 @@ def _start_services(
 ) -> None:
     profile = "vpn" if use_vpn else "no-vpn"
     logger_prefix = "VPN" if use_vpn else "no-VPN"
-    console.print(f"[cyan]Docker:[/] {'[dry-run] ' if dry_run else ''}Starting services with profile '{profile}'")
 
     def run(cmd: list[str], env_profile: Optional[str] = None) -> None:
         env = os.environ.copy()
@@ -296,15 +331,43 @@ def _start_services(
             env["COMPOSE_PROFILES"] = env_profile
         run_command(cmd, cwd=root_dir, dry_run=dry_run, runner=command_runner, env=env)
 
-    # Stop existing containers for both profiles to avoid conflicts.
-    for profile_name in ("vpn", "no-vpn"):
-        run(["docker", "compose", "down"], env_profile=profile_name)
+    steps = _init_start_steps(profile)
 
-    run(["docker", "compose", "down", "--remove-orphans"], env_profile=None)
-    run(["docker", "compose", "build", "health-server"], env_profile=None)
+    commands = [
+        ("down_vpn", ["docker", "compose", "down"], "Stopping VPN profile", "vpn"),
+        ("down_no_vpn", ["docker", "compose", "down"], "Stopping no-VPN profile", "no-vpn"),
+        ("down_orphans", ["docker", "compose", "down", "--remove-orphans"], "Removing orphan containers", None),
+        ("build_health", ["docker", "compose", "build", "health-server"], "Building health service", None),
+        ("pull_profile", ["docker", "compose", "pull"], f"Pulling images for {profile}", profile),
+        ("up_profile", ["docker", "compose", "up", "-d"], f"Starting services ({profile})", profile),
+    ]
 
-    run(["docker", "compose", "pull"], env_profile=profile)
-    run(["docker", "compose", "up", "-d"], env_profile=profile)
+    def update(step_key: str, status: str, detail: str = "") -> None:
+        data = steps.get(step_key)
+        if not data:
+            return
+        data["status"] = status
+        if detail:
+            data["details"] = detail
+
+    if dry_run:
+        console.print(f"[cyan]Docker:[/] [dry-run] Would execute compose workflow for '{profile}' profile")
+        return
+
+    with Live(_render_start_table(steps), refresh_per_second=4, console=console) as live:
+        for step_key, cmd, detail, env_profile in commands:
+            update(step_key, "running", detail)
+            live.update(_render_start_table(steps))
+            try:
+                run(cmd, env_profile=env_profile)
+            except Exception as exc:
+                update(step_key, "failed", str(exc))
+                live.update(_render_start_table(steps))
+                raise SetupError(f"Docker command failed ({' '.join(cmd)}): {exc}") from exc
+            else:
+                update(step_key, "done", "Completed")
+                live.update(_render_start_table(steps))
+
     LOGGER.info("Docker services started with %s profile", logger_prefix)
 
     if wait and not dry_run:

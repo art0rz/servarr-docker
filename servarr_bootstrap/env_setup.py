@@ -58,6 +58,7 @@ VPN_HOSTNAME_FLAG = "VPN_HOSTNAME_FILTERS_ENABLED"
 VPN_PORT_FORWARD_FLAG = "VPN_PORT_FORWARDING_ENABLED"
 WIREGUARD_ADVANCED_FLAG = "WIREGUARD_ADVANCED_ENABLED"
 VPN_LOCATION_EXTRA_FLAG = "VPN_LOCATION_EXTRA_ENABLED"
+OPENVPN_REQUIRED_KEYS = {"OPENVPN_USER", "OPENVPN_PASSWORD"}
 
 
 def _validate_non_empty(value: str) -> str:
@@ -207,6 +208,14 @@ PROMPT_SECTIONS: List[PromptSection] = [
         ],
     ),
     PromptSection(
+        "OpenVPN Credentials",
+        "Only required when VPN protocol is OpenVPN.",
+        [
+            EnvPrompt("OPENVPN_USER", "OpenVPN username", "", validator=_validate_non_empty),
+            EnvPrompt("OPENVPN_PASSWORD", "OpenVPN password", "", secret=True, validator=_validate_non_empty),
+        ],
+    ),
+    PromptSection(
         "VPN Location Filters",
         "Optional filters to pin VPN connections to specific regions.",
         [
@@ -282,6 +291,8 @@ VPN_DEPENDENT_KEYS = {
     "WIREGUARD_IMPLEMENTATION",
     "WIREGUARD_MTU",
     "WIREGUARD_PERSISTENT_KEEPALIVE_INTERVAL",
+    "OPENVPN_USER",
+    "OPENVPN_PASSWORD",
     VPN_FILTER_FLAG,
     VPN_LOCATION_EXTRA_FLAG,
     VPN_HOSTNAME_FLAG,
@@ -402,6 +413,8 @@ def _should_prompt(key: str, values: Dict[str, str]) -> bool:
         return wants_vpn
     if key in WIREGUARD_REQUIRED_KEYS:
         return wants_wireguard
+    if key in OPENVPN_REQUIRED_KEYS:
+        return _wants_openvpn(values)
     if key == WIREGUARD_ADVANCED_FLAG:
         return wants_wireguard
     if key in WIREGUARD_ADVANCED_KEYS:
@@ -447,6 +460,15 @@ def _wants_wireguard(values: Dict[str, str]) -> bool:
     return normalized in {"wireguard", "wg"}
 
 
+def _wants_openvpn(values: Dict[str, str]) -> bool:
+    if not _wants_vpn(values):
+        return False
+    vpn_type = values.get("VPN_TYPE")
+    if vpn_type is None:
+        return False
+    return vpn_type.strip().lower() == "openvpn"
+
+
 def _with_timezone_default(sections: List[PromptSection], tz: str) -> List[PromptSection]:
     updated: List[PromptSection] = []
     for section in sections:
@@ -462,7 +484,9 @@ def _with_timezone_default(sections: List[PromptSection], tz: str) -> List[Promp
 
 def default_env_values() -> Dict[str, str]:
     defaults: Dict[str, str] = {}
-    for section in PROMPT_SECTIONS:
+    tz_guess = detect_timezone() or "UTC"
+    sections = _with_timezone_default(PROMPT_SECTIONS, tz_guess)
+    for section in sections:
         for prompt in section.prompts:
             defaults[prompt.key] = prompt.default or ""
     return defaults
