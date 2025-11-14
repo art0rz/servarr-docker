@@ -18,10 +18,11 @@ from rich.table import Table
 
 from .cleaner import CleanError, CleanPlan, perform_clean
 from .config import ConfigError, RuntimeContext, RuntimeOptions, build_runtime_context
-from .env_setup import interactive_env_setup, default_env_values
-from .sanity import run_sanity_scan, render_report
+from .env_setup import default_env_values, interactive_env_setup
+from .sanity import render_report, run_sanity_scan
 from .setup_tasks import SetupError, perform_setup
 from .tasks.integrations import IntegrationError, run_integration_tasks
+from .utils.progress import ProgressStep, ProgressTracker
 
 APP = typer.Typer(add_completion=False, invoke_without_command=True, help="Servarr bootstrapper (under construction)")
 CONSOLE = Console()
@@ -229,38 +230,35 @@ def clean(
 
     plan = CleanPlan(remove_logs=remove_logs, remove_venv=remove_venv)
 
-    steps = _initial_clean_steps(plan)
+  clean_env = dict(runtime.env.merged)
+  for key, default in default_env_values().items():
+    clean_env.setdefault(key, default)
 
-    def status_callback(step: str, status: str, detail: str = "") -> None:
-        data = steps.get(step)
-        if not data:
-            return
-        data["status"] = status
-        if detail:
-            data["details"] = detail
+  clean_error: Optional[Exception] = None
+  steps = [
+      ProgressStep("docker", "Stop containers", "Waiting"),
+      ProgressStep("configs", "Remove config directories", "Waiting"),
+      ProgressStep("state", "Remove bootstrap state", "Waiting"),
+      ProgressStep("logs", "Remove bootstrap logs", "Skipped" if not plan.remove_logs else "Waiting"),
+      ProgressStep("venv", "Remove virtualenv", "Skipped" if not plan.remove_venv else "Waiting"),
+  ]
 
-    clean_env = dict(runtime.env.merged)
-    for key, default in default_env_values().items():
-        clean_env.setdefault(key, default)
+  with ProgressTracker("Clean Progress", steps, console=CONSOLE) as tracker:
+      def update_and_render(step: str, status: str, detail: str = "") -> None:
+          tracker.update(step, status=status, details=detail or tracker.steps[step].details)
 
-    clean_error: Optional[Exception] = None
-    with Live(_render_clean_table(steps), console=CONSOLE, refresh_per_second=4) as live:
-        def update_and_render(step: str, status: str, detail: str = "") -> None:
-            status_callback(step, status, detail)
-            live.update(_render_clean_table(steps))
-
-        try:
-            perform_clean(
-                root_dir=ROOT_DIR,
-                log_dir=LOG_DIR,
-                runtime=runtime,
-                plan=plan,
-                current_log=context.get("log_path"),
-                status_callback=update_and_render,
-                command_env=clean_env,
-            )
-        except CleanError as exc:
-            clean_error = exc
+      try:
+          perform_clean(
+              root_dir=ROOT_DIR,
+              log_dir=LOG_DIR,
+              runtime=runtime,
+              plan=plan,
+              current_log=context.get("log_path"),
+              status_callback=update_and_render,
+              command_env=clean_env,
+          )
+      except CleanError as exc:
+          clean_error = exc
 
     if clean_error:
         CONSOLE.print(f"[bold red]Clean failed:[/bold red] {clean_error}")

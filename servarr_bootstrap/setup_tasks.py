@@ -21,6 +21,7 @@ from rich.table import Table
 from .cleaner import CommandRunner, run_command
 from .config import RuntimeContext
 from .sanity import SERVICE_PROBES, ServiceProbe
+from .utils.progress import ProgressStep, ProgressTracker
 
 LOGGER = logging.getLogger("servarr.bootstrap.setup")
 CONFIG_DIRECTORIES = (
@@ -331,7 +332,14 @@ def _start_services(
             env["COMPOSE_PROFILES"] = env_profile
         run_command(cmd, cwd=root_dir, dry_run=dry_run, runner=command_runner, env=env)
 
-    steps = _init_start_steps(profile)
+    start_steps = [
+        ProgressStep("down_vpn", "Stop VPN profile"),
+        ProgressStep("down_no_vpn", "Stop no-VPN profile"),
+        ProgressStep("down_orphans", "Remove orphans"),
+        ProgressStep("build_health", "Build health service"),
+        ProgressStep("pull_profile", f"Pull ({profile})"),
+        ProgressStep("up_profile", f"Start ({profile})"),
+    ]
 
     commands = [
         ("down_vpn", ["docker", "compose", "down"], "Stopping VPN profile", "vpn"),
@@ -342,31 +350,20 @@ def _start_services(
         ("up_profile", ["docker", "compose", "up", "-d"], f"Starting services ({profile})", profile),
     ]
 
-    def update(step_key: str, status: str, detail: str = "") -> None:
-        data = steps.get(step_key)
-        if not data:
-            return
-        data["status"] = status
-        if detail:
-            data["details"] = detail
-
     if dry_run:
         console.print(f"[cyan]Docker:[/] [dry-run] Would execute compose workflow for '{profile}' profile")
         return
 
-    with Live(_render_start_table(steps), refresh_per_second=4, console=console) as live:
+    with ProgressTracker("Docker Progress", start_steps, console=console) as tracker:
         for step_key, cmd, detail, env_profile in commands:
-            update(step_key, "running", detail)
-            live.update(_render_start_table(steps))
+            tracker.update(step_key, status="running", details=detail)
             try:
                 run(cmd, env_profile=env_profile)
             except Exception as exc:
-                update(step_key, "failed", str(exc))
-                live.update(_render_start_table(steps))
+                tracker.update(step_key, status="failed", details=str(exc))
                 raise SetupError(f"Docker command failed ({' '.join(cmd)}): {exc}") from exc
             else:
-                update(step_key, "done", "Completed")
-                live.update(_render_start_table(steps))
+                tracker.update(step_key, status="done", details="Completed")
 
     LOGGER.info("Docker services started with %s profile", logger_prefix)
 
