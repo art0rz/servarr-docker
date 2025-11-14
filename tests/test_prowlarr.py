@@ -43,6 +43,23 @@ class ProwlarrClientTests(unittest.TestCase):
         client.ensure_flaresolverr_proxy("http://flaresolverr:8191")
         self.assertTrue(any(call[0] == "POST" and call[1] == "/api/v1/indexerProxy" for call in calls))
 
+    def test_ensure_ui_credentials_disables_local_auth(self):
+        client = ProwlarrClient("http://localhost:9696", "key", self.console, dry_run=False)
+
+        def fake_request(method, path, **kwargs):
+            if method == "GET" and path == "/api/v1/config/host":
+                return FakeResponse({"authenticationMethod": "forms"})
+            if method == "PUT" and path == "/api/v1/config/host":
+                payload = kwargs.get("json", {})
+                assert payload["authenticationRequired"] == "disabledForLocalAddresses"
+                assert payload["username"] == "user"
+                assert payload["password"] == "pass"
+                return FakeResponse(payload)
+            raise AssertionError((method, path))
+
+        client._request = fake_request  # type: ignore[assignment]
+        client.ensure_ui_credentials("user", "pass")
+
 
 if __name__ == "__main__":
     unittest.main()

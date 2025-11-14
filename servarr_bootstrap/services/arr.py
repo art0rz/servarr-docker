@@ -82,7 +82,7 @@ class ArrClient:
         payload.update(
             {
                 "authenticationMethod": "forms",
-                "authenticationRequired": "enabled",
+                "authenticationRequired": "disabledForLocalAddresses",
                 "username": username,
                 "password": password,
                 "passwordConfirmation": password,

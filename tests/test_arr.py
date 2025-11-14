@@ -51,6 +51,23 @@ class ArrClientTests(unittest.TestCase):
         client._request = fake_request  # type: ignore[assignment]
         client.ensure_root_folder("/mnt/media/tv")
 
+    def test_ensure_ui_credentials_disables_local_auth(self):
+        client = ArrClient("Sonarr", "http://localhost:8989", "apikey", self.console, dry_run=False)
+
+        def fake_request(method, path, **kwargs):
+            if method == "GET" and path == "/api/v3/config/host":
+                return FakeResponse({"authenticationMethod": "forms"})
+            if method == "PUT" and path == "/api/v3/config/host":
+                payload = kwargs.get("json", {})
+                assert payload["authenticationRequired"] == "disabledForLocalAddresses"
+                assert payload["username"] == "user"
+                assert payload["password"] == "pass"
+                return FakeResponse(payload)
+            raise AssertionError((method, path))
+
+        client._request = fake_request  # type: ignore[assignment]
+        client.ensure_ui_credentials("user", "pass")
+
 
 if __name__ == "__main__":
     unittest.main()
