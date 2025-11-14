@@ -179,7 +179,15 @@ def _check_compose_services(root_dir: Path) -> SanityItem:
             remediation="Upgrade Docker Compose to a version that supports JSON output.",
         )
 
-    running = sum(1 for row in container_rows if row.get("State") == "running")
+    if not isinstance(container_rows, list):
+        return SanityItem(
+            name="Compose services",
+            status=SanityStatus.WARN,
+            detail="docker compose ps returned unexpected output; try upgrading Docker Compose",
+            remediation="Upgrade Docker Compose to support JSON ps output.",
+        )
+
+    running = sum(1 for row in container_rows if isinstance(row, dict) and row.get("State") == "running")
     total_defined = len(services)
     detail = f"{running}/{total_defined} services running."
     if running == total_defined and total_defined > 0:

@@ -23,6 +23,7 @@ from .tasks.integrations import IntegrationError, run_integration_tasks
 APP = typer.Typer(add_completion=False, invoke_without_command=True, help="Servarr bootstrapper (under construction)")
 CONSOLE = Console()
 LOGGER_NAME = "servarr.bootstrap"
+LOGGER = logging.getLogger(LOGGER_NAME)
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LOG_DIR = ROOT_DIR / "logs"
 
@@ -43,7 +44,7 @@ def configure_logging(verbose: bool) -> Path:
         console=CONSOLE,
         show_time=False,
         show_path=False,
-        rich_tracebacks=True,
+        rich_tracebacks=False,
     )
     console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
 
@@ -63,9 +64,9 @@ def configure_logging(verbose: bool) -> Path:
             latest_link.unlink()
         latest_link.symlink_to(log_file.name)
     except OSError:
-        logging.getLogger(LOGGER_NAME).debug("Unable to update latest log symlink", exc_info=True)
+        LOGGER.debug("Unable to update latest log symlink", exc_info=True)
 
-    logging.getLogger(LOGGER_NAME).debug("Logging initialized at %s", log_file)
+    LOGGER.debug("Logging initialized at %s", log_file)
     return log_file
 
 
@@ -87,7 +88,7 @@ def main(
     options = RuntimeOptions(dry_run=dry_run, non_interactive=non_interactive, verbose=verbose)
     context = _store_context(ctx, options=options, log_path=log_path)
 
-    logging.getLogger(LOGGER_NAME).info("Logs written to %s", log_path)
+    LOGGER.info("Logs written to %s", log_path)
 
     if ctx.invoked_subcommand is None:
         runtime = _ensure_runtime_context(ctx, require_credentials=True)
@@ -208,18 +209,37 @@ def clean(
 
 def run_app() -> None:
     """Serve as the entrypoint callable for `python -m servarr_bootstrap`."""
-    APP()
+    try:
+        APP()
+    except typer.Exit:
+        raise
+    except Exception as exc:  # pragma: no cover - safeguard
+        LOGGER.exception("Unhandled bootstrap error")
+        log_hint = LOG_DIR / "bootstrap-latest.log"
+        CONSOLE.print(
+            f"[bold red]Unexpected error:[/bold red] {exc}\n"
+            f"[dim]See {log_hint} for the full stack trace.[/dim]"
+        )
+        raise typer.Exit(code=1) from exc
 
 
 def _execute_sanity_and_stub(runtime: RuntimeContext, log_path: Optional[str]) -> None:
     """Run the sanity scan before executing the placeholder workflow."""
-    report = run_sanity_scan(ROOT_DIR, runtime)
-    render_report(report, CONSOLE)
+    try:
+        report = run_sanity_scan(ROOT_DIR, runtime)
+        render_report(report, CONSOLE)
+    except Exception as exc:
+        LOGGER.exception("Environment check failed")
+        CONSOLE.print(f"[bold red]Environment check failed:[/bold red] {exc}")
+        CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
+        raise typer.Exit(code=1) from exc
     try:
         perform_setup(ROOT_DIR, runtime, CONSOLE)
         run_integration_tasks(ROOT_DIR, runtime, CONSOLE)
     except (SetupError, IntegrationError) as exc:
+        LOGGER.exception("Setup failed")
         CONSOLE.print(f"[bold red]Setup failed:[/bold red] {exc}")
+        CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
         raise typer.Exit(code=1) from exc
     _print_completion(runtime, log_path)
 

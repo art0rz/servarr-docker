@@ -19,6 +19,7 @@ from rich.table import Table
 
 from .cleaner import CommandRunner, run_command
 from .config import RuntimeContext
+from .sanity import render_report
 from .sanity import SERVICE_PROBES, ServiceProbe
 
 LOGGER = logging.getLogger("servarr.bootstrap.setup")
@@ -208,18 +209,24 @@ def _iter_permission_targets(media_dir: Path) -> Iterable[Path]:
             yield Path(root) / entry
 
 
-def _set_owner_and_mode(path: Path, uid: int, gid: int, console: Console | None, skipped: List[Path]) -> None:
+def _set_owner_and_mode(
+    path: Path,
+    uid: int,
+    gid: int,
+    console: Console | None,
+    skipped: List[Path],
+) -> None:
     try:
         os.chown(path, uid, gid)
     except PermissionError:
-        _record_skip(path, skipped, console)
+        _record_skip(path, skipped, console, hint=f"sudo chown -R {uid}:{gid} '{path}'")
         return
     except FileNotFoundError:
         return
     _ensure_rw_access(path, console, skipped)
 
 
-def _record_skip(path: Path, skipped: List[Path], console: Console | None) -> None:
+def _record_skip(path: Path, skipped: List[Path], console: Console | None, hint: Optional[str] = None) -> None:
     candidate = path if path.is_dir() else path.parent
     for root in skipped:
         try:
@@ -229,8 +236,11 @@ def _record_skip(path: Path, skipped: List[Path], console: Console | None) -> No
             continue
     skipped.append(candidate)
     if console:
-        console.print(f"[yellow]Permissions:[/] Skipping read-only path {candidate}")
-    LOGGER.debug("Permission denied while updating %s; skipping.", candidate)
+        message = f"[yellow]Permissions:[/] Skipping read-only path {candidate}"
+        if hint:
+            message += f" (run `{hint}` to fix)"
+        console.print(message)
+    LOGGER.debug("Permission denied while updating %s; skipping. Hint: %s", candidate, hint)
 
 
 def _ensure_rw_access(path: Path, console: Console | None, skipped: List[Path]) -> None:
@@ -244,7 +254,7 @@ def _ensure_rw_access(path: Path, console: Console | None, skipped: List[Path]) 
     try:
         os.chmod(path, desired)
     except PermissionError:
-        _record_skip(path, skipped, console)
+        _record_skip(path, skipped, console, hint=f"sudo chmod {oct(desired)} '{path}'")
 
 
 def _set_rw_recursive(root: Path) -> None:
@@ -308,7 +318,10 @@ def _start_services(
 def _wait_for_services(runtime: RuntimeContext, console: Console) -> Dict[str, tuple[str, str]]:
     env = runtime.env.merged
     statuses: Dict[str, str] = {probe.name: "waiting" for probe in SERVICE_PROBES}
+    attempt_counts: Dict[str, int] = {probe.name: 0 for probe in SERVICE_PROBES}
     details: Dict[str, str] = {probe.name: "Waiting for response" for probe in SERVICE_PROBES}
+    max_attempts = 20
+    interval = 3
 
     def render_table() -> Table:
         table = Table(title="Service Readiness", show_lines=False)
@@ -322,33 +335,49 @@ def _wait_for_services(runtime: RuntimeContext, console: Console) -> Dict[str, t
                 style = "green"
             elif status == "error":
                 style = "red"
-            table.add_row(probe.name, f"[{style}]{status}[/]", details[probe.name])
+            current_attempt = attempt_counts[probe.name]
+            table.add_row(
+                probe.name,
+                f"[{style}]{status}[/] ({current_attempt}/{max_attempts})",
+                details[probe.name],
+            )
         return table
 
-    def check_probe(probe: ServiceProbe) -> tuple[str, str, str]:
+    def check_once(probe: ServiceProbe) -> tuple[bool, str]:
         port_value = env.get(probe.env_port_key)
         try:
             port = int(port_value) if port_value else probe.default_port
         except ValueError:
-            return probe.name, "error", f"Invalid port '{port_value}'"
+            return False, f"Invalid port '{port_value}'"
 
         url = f"http://127.0.0.1:{port}{probe.path}"
-        for attempt in range(1, 11):
-            try:
-                response = requests.get(url, timeout=3)
-                if 200 <= response.status_code < 400:
-                    return probe.name, "ready", f"Reachable at {url}"
-            except requests.RequestException as exc:
-                LOGGER.debug("Attempt %s failed for %s: %s", attempt, url, exc)
-            time.sleep(3)
-        return probe.name, "error", "No response after multiple attempts"
+        try:
+            response = requests.get(url, timeout=3)
+            if 200 <= response.status_code < 400:
+                return True, f"Reachable at {url}"
+            return False, f"HTTP {response.status_code} from {url}"
+        except requests.RequestException as exc:
+            LOGGER.debug("Probe failed for %s: %s", url, exc)
+            return False, str(exc)
 
     with Live(render_table(), refresh_per_second=4, console=console) as live:
-        with ThreadPoolExecutor(max_workers=len(SERVICE_PROBES)) as executor:
-            futures = {executor.submit(check_probe, probe): probe for probe in SERVICE_PROBES}
-            for future in as_completed(futures):
-                name, status, detail = future.result()
-                statuses[name] = status
-                details[name] = detail
+        for attempt in range(1, max_attempts + 1):
+            for probe in SERVICE_PROBES:
+                name = probe.name
+                if statuses[name] == "ready":
+                    continue
+                success, detail = check_once(probe)
+                attempt_counts[name] = attempt
+                if success:
+                    statuses[name] = "ready"
+                    details[name] = detail
+                else:
+                    details[name] = f"Waiting (last error: {detail})"
+                    if attempt == max_attempts:
+                        statuses[name] = "error"
+                        details[name] = "No response after waiting ~1 minute"
                 live.update(render_table())
+            if all(status == "ready" for status in statuses.values()):
+                break
+            time.sleep(interval)
     return {name: (statuses[name], details[name]) for name in statuses}
