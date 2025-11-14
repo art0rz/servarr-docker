@@ -254,8 +254,7 @@ def _print_completion(runtime: RuntimeContext, log_path: Optional[str]) -> None:
     CONSOLE.print(summary_table)
     CONSOLE.print(
         Panel(
-            "Setup finished. Need the legacy flow? Run `./bootstrap.sh legacy`.\n"
-            "Review the log for detailed actions.",
+            "Setup finished. Review the log for detailed actions.",
             border_style="green",
         )
     )
