@@ -16,6 +16,7 @@ from rich.table import Table
 
 from .cleaner import CleanError, CleanPlan, perform_clean
 from .config import ConfigError, RuntimeContext, RuntimeOptions, build_runtime_context
+from .env_setup import interactive_env_setup
 from .sanity import run_sanity_scan, render_report
 from .setup_tasks import SetupError, perform_setup
 from .tasks.integrations import IntegrationError, run_integration_tasks
@@ -100,6 +101,9 @@ def _ensure_runtime_context(ctx: typer.Context, *, require_credentials: bool) ->
     """Build (or rebuild) the runtime context using current options."""
     context = ctx.ensure_object(dict)
     options: RuntimeOptions = context.get("options", RuntimeOptions())
+    if not options.non_interactive and not context.get("_env_configured"):
+        interactive_env_setup(ROOT_DIR, CONSOLE)
+        context["_env_configured"] = True
     try:
         runtime = build_runtime_context(
             ROOT_DIR,
