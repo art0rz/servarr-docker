@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from typing import Optional
+import time
+from pathlib import Path
+from typing import Dict, Optional
 
 import requests
 from rich.console import Console
@@ -30,30 +32,26 @@ class QbitClient:
         desired_username: Optional[str],
         desired_password: Optional[str],
         lan_subnet: Optional[str],
-    ) -> None:
+    ) -> bool:
         """Ensure qBittorrent is configured with the provided credentials and bypass settings."""
         if not desired_username or not desired_password:
             self.console.print("[yellow]qBittorrent:[/] Skipping credential sync (no username/password)")
-            return
+            return False
 
         if self.dry_run:
             self.console.print("[magenta][dry-run][/magenta] qBittorrent: would configure credentials and LAN bypass")
-            return
+            return False
 
-        login_success = self._attempt_login(desired_username, desired_password)
-        current_label = "bootstrap credentials" if login_success else None
-
-        if not login_success:
-            temp_creds = self._read_temp_credentials()
-            if temp_creds:
-                temp_user, temp_pass = temp_creds
-                LOGGER.info("Trying qBittorrent temporary credentials from container logs")
-                login_success = self._attempt_login(temp_user, temp_pass)
-                current_label = "temporary credentials" if login_success else current_label
-
-        if not login_success:
-            login_success = self._attempt_login("admin", "adminadmin")
-            current_label = "default credentials" if login_success else None
+        login_success = False
+        current_label = None
+        for attempt in range(1, 6):
+            login_success, current_label = self._attempt_bootstrap_login(desired_username, desired_password)
+            if login_success:
+                break
+            LOGGER.warning(
+                "qBittorrent login failed (attempt %s/5). Waiting for the WebUI to become available...", attempt
+            )
+            time.sleep(5)
 
         if not login_success:
             raise QbitClientError("Unable to authenticate with qBittorrent; cannot configure preferences.")
@@ -82,6 +80,42 @@ class QbitClient:
             }
         )
         self.console.print("[green]qBittorrent:[/] Credentials synchronized and LAN bypass configured")
+        return True
+
+    def ensure_storage_layout(self, media_dir: Path) -> None:
+        """Configure standard save paths, temp paths, torrent export dirs, and categories."""
+        downloads_root = media_dir / "downloads"
+        incomplete_dir = downloads_root / "incomplete"
+        completed_dir = downloads_root / "completed"
+
+        preferences = {
+            "save_path": str(completed_dir),
+            "temp_path_enabled": True,
+            "temp_path": str(incomplete_dir),
+            "export_dir": str(incomplete_dir / "torrents"),
+            "export_dir_fin": str(completed_dir / "torrents"),
+            "auto_tmm_enabled": True,
+            "category_changed_tmm_enabled": True,
+            "save_path_changed_tmm_enabled": True,
+            "torrent_changed_tmm_enabled": True,
+            "create_subfolder_enabled": False,
+            "append_label_to_save_path": False,
+            "dht": False,
+            "pex": False,
+            "lpd": False,
+        }
+        category_paths = {
+            "movies": completed_dir / "movies",
+            "tv": completed_dir / "tv",
+        }
+
+        if self.dry_run:
+            self.console.print("[magenta][dry-run][/magenta] qBittorrent: would update download paths and categories")
+            return
+
+        self._set_preferences(preferences)
+        self._ensure_categories(category_paths)
+        self.console.print("[green]qBittorrent:[/] Download paths and categories configured")
 
     def _attempt_login(self, username: str, password: str) -> bool:
         if self.dry_run:
@@ -143,3 +177,46 @@ class QbitClient:
         if user and password:
             return user, password
         return None
+
+    def _attempt_bootstrap_login(self, desired_username: str, desired_password: str) -> tuple[bool, Optional[str]]:
+        login_success = self._attempt_login(desired_username, desired_password)
+        current_label = "bootstrap credentials" if login_success else None
+
+        if not login_success:
+            temp_creds = self._read_temp_credentials()
+            if temp_creds:
+                temp_user, temp_pass = temp_creds
+                LOGGER.info("Trying qBittorrent temporary credentials from container logs")
+                login_success = self._attempt_login(temp_user, temp_pass)
+                current_label = "temporary credentials" if login_success else current_label
+
+        if not login_success:
+            login_success = self._attempt_login("admin", "adminadmin")
+            current_label = "default credentials" if login_success else current_label
+
+        return login_success, current_label
+
+    def _ensure_categories(self, category_paths: Dict[str, Path]) -> None:
+        try:
+            response = self.session.get(f"{self.base_url}/api/v2/torrents/categories", timeout=5)
+            response.raise_for_status()
+            existing = response.json() or {}
+        except requests.RequestException as exc:
+            raise QbitClientError(f"Failed to fetch qBittorrent categories: {exc}") from exc
+
+        for name, path in category_paths.items():
+            desired_path = str(path)
+            current = existing.get(name) or {}
+            if current.get("savePath") == desired_path:
+                continue
+            endpoint = "editCategory" if name in existing else "createCategory"
+            payload = {"category": name, "savePath": desired_path, "downloadPath": desired_path}
+            try:
+                response = self.session.post(
+                    f"{self.base_url}/api/v2/torrents/{endpoint}",
+                    data=payload,
+                    timeout=5,
+                )
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                raise QbitClientError(f"Failed to update qBittorrent category '{name}': {exc}") from exc

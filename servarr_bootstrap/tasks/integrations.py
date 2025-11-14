@@ -87,12 +87,15 @@ class IntegrationRunner:
         lan_subnet = self.env.get("LAN_SUBNET")
         container_name = self.env.get("QBIT_CONTAINER_NAME", "qbittorrent")
         client = QbitClient(base_url, self.console, self.runtime.options.dry_run, container_name=container_name)
+        media_dir_value = self.env.get("MEDIA_DIR")
         try:
-            client.ensure_credentials(
+            configured = client.ensure_credentials(
                 desired_username=self.runtime.credentials.username,
                 desired_password=self.runtime.credentials.password,
                 lan_subnet=lan_subnet,
             )
+            if configured and media_dir_value:
+                client.ensure_storage_layout(Path(media_dir_value))
         except QbitClientError as exc:
             self.console.print(f"[yellow]qBittorrent configuration skipped:[/] {exc}")
             LOGGER.warning("qBittorrent configuration skipped: %s", exc)

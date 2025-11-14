@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
+import stat
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence
 
 import requests
 from rich.console import Console
@@ -137,13 +138,10 @@ def _apply_permissions(media_dir: Path, puid: Optional[str], pgid: Optional[str]
     if dry_run:
         return
 
+    skipped_roots: List[Path] = []
+
     for target in _iter_permission_targets(media_dir):
-        try:
-            os.chown(target, uid, gid)
-        except PermissionError:
-            LOGGER.warning("Permission denied while chowning %s. Run manually with sudo if needed.", target)
-        except FileNotFoundError:
-            continue
+        _set_owner_and_mode(target, uid, gid, console, skipped_roots)
 
 
 def _apply_config_permissions(config_root: Path, puid: Optional[str], pgid: Optional[str], console: Console, dry_run: bool) -> None:
@@ -157,14 +155,13 @@ def _apply_config_permissions(config_root: Path, puid: Optional[str], pgid: Opti
     if dry_run:
         return
     LOGGER.info("Ensuring config ownership %s:%s", uid, gid)
+    skipped: List[Path] = []
     try:
         for root, dirs, files in os.walk(config_root):
-            try:
-                os.chown(root, uid, gid)
-            except PermissionError:
-                raise
+            root_path = Path(root)
+            _set_owner_and_mode(root_path, uid, gid, console, skipped)
             for name in files:
-                os.chown(Path(root) / name, uid, gid)
+                _set_owner_and_mode(root_path / name, uid, gid, console, skipped)
     except PermissionError:
         if not _chown_with_docker(config_root, uid, gid):
             LOGGER.warning(
@@ -175,6 +172,10 @@ def _apply_config_permissions(config_root: Path, puid: Optional[str], pgid: Opti
                 uid,
                 gid,
             )
+        else:
+            _set_rw_recursive(config_root)
+            return
+    _set_rw_recursive(config_root)
 
 
 def _chown_with_docker(path: Path, uid: int, gid: int) -> bool:
@@ -205,6 +206,64 @@ def _iter_permission_targets(media_dir: Path) -> Iterable[Path]:
     for root, dirs, _files in os.walk(media_dir):
         for entry in dirs:
             yield Path(root) / entry
+
+
+def _set_owner_and_mode(path: Path, uid: int, gid: int, console: Console | None, skipped: List[Path]) -> None:
+    try:
+        os.chown(path, uid, gid)
+    except PermissionError:
+        _record_skip(path, skipped, console)
+        return
+    except FileNotFoundError:
+        return
+    _ensure_rw_access(path, console, skipped)
+
+
+def _record_skip(path: Path, skipped: List[Path], console: Console | None) -> None:
+    candidate = path if path.is_dir() else path.parent
+    for root in skipped:
+        try:
+            candidate.relative_to(root)
+            return
+        except ValueError:
+            continue
+    skipped.append(candidate)
+    if console:
+        console.print(f"[yellow]Permissions:[/] Skipping read-only path {candidate}")
+    LOGGER.debug("Permission denied while updating %s; skipping.", candidate)
+
+
+def _ensure_rw_access(path: Path, console: Console | None, skipped: List[Path]) -> None:
+    try:
+        mode = path.stat().st_mode
+    except FileNotFoundError:
+        return
+    desired = mode | (0o770 if path.is_dir() else 0o660)
+    if path.is_dir():
+        desired |= 0o110
+    try:
+        os.chmod(path, desired)
+    except PermissionError:
+        _record_skip(path, skipped, console)
+
+
+def _set_rw_recursive(root: Path) -> None:
+    _ensure_rw_access(root, None, [])
+    for current_root, dirs, files in os.walk(root):
+        base = Path(current_root)
+        for name in dirs + files:
+            target = base / name
+            try:
+                mode = target.stat().st_mode
+            except FileNotFoundError:
+                continue
+            desired = mode | (0o770 if target.is_dir() else 0o660)
+            if target.is_dir():
+                desired |= 0o110
+            try:
+                os.chmod(target, desired)
+            except PermissionError:
+                continue
 
 
 def _start_services(
@@ -239,10 +298,14 @@ def _start_services(
     LOGGER.info("Docker services started with %s profile", logger_prefix)
 
     if wait and not dry_run:
-        _wait_for_services(runtime, console)
+        readiness = _wait_for_services(runtime, console)
+        failures = {name: detail for name, (status, detail) in readiness.items() if status != "ready"}
+        if failures:
+            summary = "; ".join(f"{name}: {detail}" for name, detail in failures.items())
+            raise SetupError(f"Service readiness failed: {summary}")
 
 
-def _wait_for_services(runtime: RuntimeContext, console: Console) -> None:
+def _wait_for_services(runtime: RuntimeContext, console: Console) -> Dict[str, tuple[str, str]]:
     env = runtime.env.merged
     statuses: Dict[str, str] = {probe.name: "waiting" for probe in SERVICE_PROBES}
     details: Dict[str, str] = {probe.name: "Waiting for response" for probe in SERVICE_PROBES}
@@ -288,3 +351,4 @@ def _wait_for_services(runtime: RuntimeContext, console: Console) -> None:
                 statuses[name] = status
                 details[name] = detail
                 live.update(render_table())
+    return {name: (statuses[name], details[name]) for name in statuses}
