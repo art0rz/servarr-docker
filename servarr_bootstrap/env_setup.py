@@ -460,6 +460,14 @@ def _with_timezone_default(sections: List[PromptSection], tz: str) -> List[Promp
     return updated
 
 
+def default_env_values() -> Dict[str, str]:
+    defaults: Dict[str, str] = {}
+    for section in PROMPT_SECTIONS:
+        for prompt in section.prompts:
+            defaults[prompt.key] = prompt.default or ""
+    return defaults
+
+
 def _flag_truthy(value: Optional[str]) -> bool:
     if value is None:
         return False

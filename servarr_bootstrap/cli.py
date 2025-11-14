@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from collections import OrderedDict
 from pathlib import Path
 from dataclasses import replace
 from typing import Any, Dict, Optional
@@ -11,12 +12,13 @@ from typing import Any, Dict, Optional
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
 from .cleaner import CleanError, CleanPlan, perform_clean
 from .config import ConfigError, RuntimeContext, RuntimeOptions, build_runtime_context
-from .env_setup import interactive_env_setup
+from .env_setup import interactive_env_setup, default_env_values
 from .sanity import run_sanity_scan, render_report
 from .setup_tasks import SetupError, perform_setup
 from .tasks.integrations import IntegrationError, run_integration_tasks
@@ -27,6 +29,13 @@ LOGGER_NAME = "servarr.bootstrap"
 LOGGER = logging.getLogger(LOGGER_NAME)
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LOG_DIR = ROOT_DIR / "logs"
+CLEAN_STATUS_STYLES = {
+    "pending": "dim",
+    "running": "cyan",
+    "done": "green",
+    "skipped": "yellow",
+    "failed": "red",
+}
 
 
 def configure_logging(verbose: bool) -> Path:
@@ -49,11 +58,9 @@ def configure_logging(verbose: bool) -> Path:
     )
     console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
 
-    logging.basicConfig(
-        level=logging.DEBUG,
-        handlers=[file_handler, console_handler],
-        force=True,
-    )
+    logging.basicConfig(level=logging.DEBUG, handlers=[file_handler], force=True)
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.addHandler(console_handler)
 
     if not verbose:
         for noisy in ("urllib3", "requests", "docker"):
@@ -75,6 +82,37 @@ def _store_context(ctx: typer.Context, **kwargs: Any) -> Dict[str, Any]:
     ctx.obj = ctx.obj or {}
     ctx.obj.update(kwargs)
     return ctx.obj
+
+
+def _initial_clean_steps(plan: CleanPlan) -> OrderedDict[str, Dict[str, str]]:
+    steps = OrderedDict(
+        [
+            ("docker", {"label": "Stop containers", "status": "pending", "details": "Waiting"}),
+            ("configs", {"label": "Remove config directories", "status": "pending", "details": "Waiting"}),
+            ("state", {"label": "Remove bootstrap state", "status": "pending", "details": "Waiting"}),
+            ("logs", {"label": "Remove bootstrap logs", "status": "pending", "details": "Waiting"}),
+            ("venv", {"label": "Remove virtualenv", "status": "pending", "details": "Waiting"}),
+        ]
+    )
+    if not plan.remove_logs:
+        steps["logs"]["status"] = "skipped"
+        steps["logs"]["details"] = "Not requested"
+    if not plan.remove_venv:
+        steps["venv"]["status"] = "skipped"
+        steps["venv"]["details"] = "Not requested"
+    return steps
+
+
+def _render_clean_table(steps: OrderedDict[str, Dict[str, str]]) -> Table:
+    table = Table(title="Clean Progress")
+    table.add_column("Step", style="bold")
+    table.add_column("Status")
+    table.add_column("Details")
+    for data in steps.values():
+        status = data["status"]
+        color = CLEAN_STATUS_STYLES.get(status, "white")
+        table.add_row(data["label"], f"[{color}]{status.capitalize()}[/{color}]", data["details"])
+    return table
 
 
 @APP.callback(invoke_without_command=True)
@@ -190,17 +228,42 @@ def clean(
 
     plan = CleanPlan(remove_logs=remove_logs, remove_venv=remove_venv)
 
-    try:
-        perform_clean(
-            root_dir=ROOT_DIR,
-            log_dir=LOG_DIR,
-            runtime=runtime,
-            plan=plan,
-            current_log=context.get("log_path"),
-        )
-    except CleanError as exc:
-        CONSOLE.print(f"[bold red]Clean failed:[/bold red] {exc}")
-        raise typer.Exit(code=1) from exc
+    steps = _initial_clean_steps(plan)
+
+    def status_callback(step: str, status: str, detail: str = "") -> None:
+        data = steps.get(step)
+        if not data:
+            return
+        data["status"] = status
+        if detail:
+            data["details"] = detail
+
+    clean_env = dict(runtime.env.merged)
+    for key, default in default_env_values().items():
+        clean_env.setdefault(key, default)
+
+    clean_error: Optional[Exception] = None
+    with Live(_render_clean_table(steps), console=CONSOLE, refresh_per_second=4) as live:
+        def update_and_render(step: str, status: str, detail: str = "") -> None:
+            status_callback(step, status, detail)
+            live.update(_render_clean_table(steps))
+
+        try:
+            perform_clean(
+                root_dir=ROOT_DIR,
+                log_dir=LOG_DIR,
+                runtime=runtime,
+                plan=plan,
+                current_log=context.get("log_path"),
+                status_callback=update_and_render,
+                command_env=clean_env,
+            )
+        except CleanError as exc:
+            clean_error = exc
+
+    if clean_error:
+        CONSOLE.print(f"[bold red]Clean failed:[/bold red] {clean_error}")
+        raise typer.Exit(code=1) from clean_error
 
     CONSOLE.print(
         Panel(
