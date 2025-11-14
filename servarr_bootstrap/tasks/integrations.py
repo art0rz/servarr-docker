@@ -169,6 +169,16 @@ class IntegrationRunner:
 
         self.prowlarr_client = client
 
+        flaresolverr_url = self.env.get("FLARESOLVERR_URL")
+        if not flaresolverr_url:
+            port = self._int_env("FLARESOLVERR_PORT", 8191)
+            flaresolverr_url = f"http://flaresolverr:{port}/"
+        try:
+            client.ensure_flaresolverr_proxy(flaresolverr_url)
+        except ProwlarrClientError as exc:
+            self.console.print(f"[yellow]Prowlarr proxy skipped:[/] {exc}")
+            LOGGER.warning("Prowlarr proxy configuration skipped: %s", exc)
+
     def configure_bazarr(self) -> None:
         try:
             bazarr_key = read_bazarr_api_key(self.root_dir)
