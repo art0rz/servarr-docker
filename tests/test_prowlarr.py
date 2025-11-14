@@ -33,7 +33,9 @@ class ProwlarrClientTests(unittest.TestCase):
                     }
                 ])
             if path == "/api/v1/indexerProxy" and method == "POST":
-                self.assertEqual(kwargs.get("json")["fields"][0]["value"], "http://flaresolverr:8191/")
+                payload = kwargs.get("json")
+                self.assertEqual(payload["name"], "FlareSolverr")
+                self.assertEqual(payload["fields"][0]["value"], "http://flaresolverr:8191/")
                 return FakeResponse({})
             raise AssertionError((method, path))
 

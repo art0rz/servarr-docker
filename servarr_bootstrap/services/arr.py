@@ -160,6 +160,7 @@ class ArrClient:
         return schema
 
     def _find_qbit_client(self, clients: List[Dict[str, Any]], config: QbittorrentConfig) -> Optional[Dict[str, Any]]:
+        fallback = None
         for client in clients:
             if client.get("implementation") != "QBittorrent":
                 continue
@@ -168,4 +169,6 @@ class ArrClient:
             category = fields.get("category")
             if host == config.host and category == config.category:
                 return client
-        return None
+            if fallback is None:
+                fallback = client
+        return fallback

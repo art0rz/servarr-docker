@@ -51,7 +51,12 @@ class ProwlarrClient:
             return
 
         existing = self._find_proxy(implementation)
-        payload = self._build_proxy_payload(implementation, {"host": host.rstrip('/') + '/'})
+        proxy_host = host.rstrip('/') + '/'
+        payload = self._build_proxy_payload(
+            implementation,
+            {"host": proxy_host},
+            name="FlareSolverr",
+        )
 
         if existing:
             payload["id"] = existing["id"]
@@ -143,7 +148,7 @@ class ProwlarrClient:
         schema.setdefault("syncLevel", schema.get("syncLevel", "fullSync"))
         return schema
 
-    def _build_proxy_payload(self, implementation: str, overrides: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_proxy_payload(self, implementation: str, overrides: Dict[str, Any], *, name: str) -> Dict[str, Any]:
         schema = self._fetch_proxy_schema(implementation)
         fields = {field["name"]: field for field in schema.get("fields", [])}
 
@@ -155,7 +160,7 @@ class ProwlarrClient:
 
         schema["fields"] = list(fields.values())
         schema.setdefault("enable", True)
-        schema.setdefault("name", implementation)
+        schema["name"] = name
         schema.setdefault("tags", [])
         return schema
 
