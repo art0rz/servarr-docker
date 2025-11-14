@@ -26,6 +26,13 @@ from ..services.recyclarr import RecyclarrManager, RecyclarrError
 LOGGER = logging.getLogger("servarr.bootstrap.integrations")
 
 
+class SilentConsole:
+    """Console shim that drops all output."""
+
+    def print(self, *args, **kwargs) -> None:  # pragma: no cover - trivial forwarding
+        return
+
+
 class IntegrationError(RuntimeError):
     """Raised when an integration step fails."""
 
@@ -84,12 +91,14 @@ class IntegrationRunner:
         self.console = console
         self.env = runtime.env.merged
         self.arr_api_keys: Dict[str, str] = {}
+        self._silent_console = SilentConsole()
 
     def configure_qbittorrent(self) -> None:
+        self._log("Configuring qBittorrent (credentials + storage layout)")
         base_url = f"http://127.0.0.1:{self._int_env('QBIT_WEBUI', 8080)}"
         lan_subnet = self.env.get("LAN_SUBNET")
         container_name = self.env.get("QBIT_CONTAINER_NAME", "qbittorrent")
-        client = QbitClient(base_url, self.console, self.runtime.options.dry_run, container_name=container_name)
+        client = QbitClient(base_url, self._silent_console, self.runtime.options.dry_run, container_name=container_name)
         media_dir_value = self.env.get("MEDIA_DIR")
         try:
             configured = client.ensure_credentials(
@@ -102,8 +111,11 @@ class IntegrationRunner:
         except QbitClientError as exc:
             self.console.print(f"[yellow]qBittorrent configuration skipped:[/] {exc}")
             LOGGER.warning("qBittorrent configuration skipped: %s", exc)
+            return
+        self._log("qBittorrent configured", style="green")
 
     def configure_arr_clients(self) -> None:
+        self._log("Configuring Sonarr/Radarr download clients & root folders")
         use_vpn = self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"}
         qbit_host = "gluetun" if use_vpn else "qbittorrent"
         qbit_port = self._int_env("QBIT_WEBUI", 8080)
@@ -119,7 +131,13 @@ class IntegrationRunner:
             port = self._int_env(target.port_env, 0)
             base_url = f"http://127.0.0.1:{port}" if port else f"http://{target.service_key}:80"
             category = self.env.get(target.category_env, target.default_category)
-            arr_client = ArrClient(target.name, base_url, api_key, self.console, self.runtime.options.dry_run)
+            arr_client = ArrClient(
+                target.name,
+                base_url,
+                api_key,
+                self._silent_console,
+                self.runtime.options.dry_run,
+            )
 
             try:
                 arr_client.ensure_qbittorrent_download_client(
@@ -134,18 +152,21 @@ class IntegrationRunner:
                 arr_client.ensure_root_folder(media_root / target.media_subdir)
             except ArrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
+        self._log("Arr services synchronized", style="green")
 
     def configure_prowlarr_applications(self) -> None:
+        self._log("Configuring Prowlarr applications/proxy")
         try:
             prowlarr_key = read_prowlarr_api_key(self.root_dir)
         except ApiKeyError as exc:
             raise IntegrationError(str(exc)) from exc
 
-        prowlarr_url_internal = f"http://prowlarr:{self._int_env('PROWLARR_PORT', 9696)}"
+        prowlarr_port = self._int_env("PROWLARR_PORT", 9696)
+        prowlarr_url_internal = f"http://prowlarr:{prowlarr_port}"
         client = ProwlarrClient(
-            base_url=f"http://127.0.0.1:{self._int_env('PROWLARR_PORT', 9696)}",
+            base_url=f"http://127.0.0.1:{prowlarr_port}",
             api_key=prowlarr_key,
-            console=self.console,
+            console=self._silent_console,
             dry_run=self.runtime.options.dry_run,
         )
 
@@ -178,15 +199,17 @@ class IntegrationRunner:
         except ProwlarrClientError as exc:
             self.console.print(f"[yellow]Prowlarr proxy skipped:[/] {exc}")
             LOGGER.warning("Prowlarr proxy configuration skipped: %s", exc)
+        self._log("Prowlarr applications configured", style="green")
 
     def configure_bazarr(self) -> None:
+        self._log("Configuring Bazarr integrations/language defaults")
         try:
             bazarr_key = read_bazarr_api_key(self.root_dir)
         except ApiKeyError as exc:
             raise IntegrationError(str(exc)) from exc
 
         base_url = f"http://127.0.0.1:{self._int_env('BAZARR_PORT', 6767)}"
-        client = BazarrClient(base_url, bazarr_key, self.console, self.runtime.options.dry_run)
+        client = BazarrClient(base_url, bazarr_key, self._silent_console, self.runtime.options.dry_run)
 
         sonarr_key = self.arr_api_keys.get("sonarr")
         radarr_key = self.arr_api_keys.get("radarr")
@@ -215,6 +238,7 @@ class IntegrationRunner:
         try:
             client.ensure_arr_integrations(sonarr_cfg, radarr_cfg, credentials=creds)
             client.ensure_language_preferences()
+            self._log("Bazarr configured", style="green")
         except BazarrClientError as exc:
             raise IntegrationError(str(exc)) from exc
 
@@ -262,6 +286,7 @@ class IntegrationRunner:
             raise IntegrationError(str(exc)) from exc
 
     def configure_cross_seed(self) -> None:
+        self._log("Configuring Cross-Seed")
         username = self.runtime.credentials.username
         password = self.runtime.credentials.password
         torznab_urls = []
@@ -290,7 +315,9 @@ class IntegrationRunner:
 
         media_dir = Path(self.env.get("MEDIA_DIR", "/mnt/media"))
         link_dir = media_dir / "downloads" / "cross-seeds"
-        configurator = CrossSeedConfigurator(self.root_dir, self.console, self.runtime.options.dry_run, link_dir=link_dir)
+        configurator = CrossSeedConfigurator(
+            self.root_dir, self._silent_console, self.runtime.options.dry_run, link_dir=link_dir
+        )
         try:
             configurator.ensure_config(
                 torznab_urls=torznab_urls,
@@ -300,6 +327,7 @@ class IntegrationRunner:
             )
         except CrossSeedError as exc:
             raise IntegrationError(str(exc)) from exc
+        self._log("Cross-Seed updated", style="green")
 
     def _int_env(self, key: str, default: int) -> int:
         value = self.env.get(key)
@@ -310,3 +338,6 @@ class IntegrationRunner:
         except ValueError:
             self.console.print(f"[yellow]Invalid integer for {key}: {value}. Using default {default}[/yellow]")
             return default
+
+    def _log(self, message: str, style: str = "cyan") -> None:
+        self.console.print(f"[{style}]Integrations:[/] {message}")
