@@ -3,28 +3,36 @@ import { promisify } from 'node:util';
 
 const sh = promisify(exec);
 
+interface ExecError {
+  stdout?: unknown;
+  stderr?: unknown;
+  message?: unknown;
+}
+
 function toTrimmedString(value: unknown): string {
   if (typeof value === 'string') return value.trim();
-  if (value === undefined || value === null) return '';
-  return String(value).trim();
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  return '';
 }
 
 export interface CommandResult {
   ok: boolean;
   out: string;
-  err?: string;
+  err: string | null;
 }
 
 export async function cmd(command: string, opts: Record<string, unknown> = {}): Promise<CommandResult> {
   try {
     const { stdout } = await sh(command, { timeout: 4000, shell: '/bin/sh', ...opts });
-    return { ok: true, out: stdout.trim() };
+    return { ok: true, out: stdout.trim(), err: null };
   } catch (error) {
-    const err = error as { stdout?: unknown, stderr?: unknown, message?: unknown, };
+    const err = error as ExecError;
     return {
       ok: false,
-      out: toTrimmedString(err?.stdout),
-      err: toTrimmedString(err?.stderr ?? err?.message)
+      out: toTrimmedString(err.stdout),
+      err: toTrimmedString(err.stderr ?? err.message)
     };
   }
 }
@@ -40,10 +48,10 @@ export async function dockerInspect(path: string, containerName: string): Promis
   }
 }
 
-export async function dockerEnvMap(containerName: string): Promise<Record<string, string>> {
+export async function dockerEnvMap(containerName: string): Promise<Record<string, string | undefined>> {
   const result = await cmd(`docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' ${containerName}`);
   if (!result.ok || !result.out) return {};
-  return result.out.split(/\n+/).reduce<Record<string, string>>((map, line) => {
+  return result.out.split(/\n+/).reduce<Record<string, string | undefined>>((map, line) => {
     const index = line.indexOf('=');
     if (index > 0) {
       map[line.slice(0, index)] = line.slice(index + 1);

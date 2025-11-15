@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_ROOT = join(__dirname, '..', '..', '..', 'config');
-export const CONFIG_ROOT = process.env.CONFIG_ROOT || DEFAULT_CONFIG_ROOT;
+export const CONFIG_ROOT = process.env.CONFIG_ROOT ?? DEFAULT_CONFIG_ROOT;
 
 const API_FILES: Record<string, string> = {
   sonarr: 'sonarr/config.xml',
@@ -95,9 +95,9 @@ export async function loadQbitDashboardContext(): Promise<QbitDashboardContext> 
   } catch {
     return { username: cred?.username, password: cred?.password };
   }
-  const match = QBIT_WEBUI_REGEX.exec(raw);
-  if (match && match[1]) {
-    return { url: match[1], username: cred?.username, password: cred?.password };
+  const urlMatch = QBIT_WEBUI_REGEX.exec(raw)?.[1];
+  if (urlMatch) {
+    return { url: urlMatch, username: cred?.username, password: cred?.password };
   }
   return { username: cred?.username, password: cred?.password };
 }

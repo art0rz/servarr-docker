@@ -9,9 +9,29 @@ import {
 } from './docker.js';
 import { loadCrossSeedStats } from './config.js';
 
-type Headers = string[];
+interface OptionalCredentials {
+  username?: string;
+  password?: string;
+}
 
-function buildHeaderArgs(headers: Headers = []): string {
+interface RequiredCredentials {
+  username: string;
+  password: string;
+}
+
+interface RequestOptions {
+  headers?: string[];
+  timeout?: number;
+}
+
+interface QbitTransferStats {
+  dl: number | null;
+  up: number | null;
+  total: number | null;
+  listenPort: number | null;
+}
+
+function buildHeaderArgs(headers: string[] = []): string {
   return headers
     .filter(Boolean)
     .map(header => `-H ${JSON.stringify(header)}`)
@@ -50,31 +70,31 @@ function extractHostPort(value: unknown): string {
   return typeof hostPort === 'string' ? hostPort : '';
 }
 
-function arrHeaders(apiKey?: string | null): Headers {
+function arrHeaders(apiKey?: string | null): string[] {
   return apiKey ? [`X-Api-Key: ${apiKey}`] : [];
 }
 
-function qbitHeaders(baseUrl: string, extras: Headers = []): Headers {
+function qbitHeaders(baseUrl: string, extras: string[] = []): string[] {
   return [`Referer: ${baseUrl}/`, `Origin: ${baseUrl}`, ...extras];
 }
 
-function hasCredentials(auth?: { username?: string, password?: string, }): auth is { username: string, password: string, } {
-  return !!(auth?.username && auth.password);
+function hasCredentials(auth?: OptionalCredentials): auth is RequiredCredentials {
+  return typeof auth?.username === 'string' && typeof auth.password === 'string';
 }
 
-async function httpGet(url: string, options: { headers?: Headers, timeout?: number, } = {}) {
-  const timeout = options.timeout || 3;
+async function httpGet(url: string, options: RequestOptions = {}) {
+  const timeout = String(options.timeout ?? 3);
   const headerSegment = buildHeaderArgs(options.headers);
   const prefix = headerSegment ? `${headerSegment} ` : '';
   return cmd(`curl -sS -m ${timeout} ${prefix}${JSON.stringify(url)}`);
 }
 
-async function httpPost(url: string, body: Record<string, unknown>, options: { headers?: Headers, timeout?: number, } = {}) {
+async function httpPost(url: string, body: Record<string, unknown>, options: RequestOptions = {}) {
   const data = JSON.stringify(body);
-  const headers = ['Content-Type: application/json', ...(options.headers || [])];
+  const headers = ['Content-Type: application/json', ...(options.headers ?? [])];
   const headerSegment = buildHeaderArgs(headers);
   const prefix = headerSegment ? `${headerSegment} ` : '';
-  const timeout = options.timeout || 4;
+  const timeout = String(options.timeout ?? 4);
   return cmd(`curl -sS -m ${timeout} ${prefix}--data ${JSON.stringify(data)} ${JSON.stringify(url)}`);
 }
 
@@ -104,9 +124,7 @@ export interface ServiceResult {
   container?: string;
 }
 
-async function probeArrService(name: string, url?: string, headers: Headers = [], apiVersion = 'v3'): Promise<ServiceResult> {
-  if (!url) return { name, ok: false, reason: 'container not found' };
-
+async function probeArrService(name: string, url: string, headers: string[] = [], apiVersion = 'v3'): Promise<ServiceResult> {
   const status = await httpGet(`${url}/api/${apiVersion}/system/status`, { headers });
   const ok = status.ok;
   let version = '';
@@ -125,6 +143,7 @@ async function probeArrService(name: string, url?: string, headers: Headers = []
 }
 
 export async function probeSonarr(url?: string, apiKey?: string | null): Promise<ServiceResult> {
+  if (!url) return { name: 'Sonarr', ok: false, reason: 'container not found' };
   const headers = arrHeaders(apiKey);
   const base = await probeArrService('Sonarr', url, headers, 'v3');
   if (!base.ok) return base;
@@ -140,6 +159,7 @@ export async function probeSonarr(url?: string, apiKey?: string | null): Promise
 }
 
 export async function probeRadarr(url?: string, apiKey?: string | null): Promise<ServiceResult> {
+  if (!url) return { name: 'Radarr', ok: false, reason: 'container not found' };
   const headers = arrHeaders(apiKey);
   const base = await probeArrService('Radarr', url, headers, 'v3');
   if (!base.ok) return base;
@@ -155,6 +175,7 @@ export async function probeRadarr(url?: string, apiKey?: string | null): Promise
 }
 
 export async function probeProwlarr(url?: string, apiKey?: string | null): Promise<ServiceResult> {
+  if (!url) return { name: 'Prowlarr', ok: false, reason: 'container not found' };
   const headers = arrHeaders(apiKey);
   const base = await probeArrService('Prowlarr', url, headers, 'v1');
   if (!base.ok) return base;
@@ -187,7 +208,7 @@ export async function probeBazarr(url?: string): Promise<ServiceResult> {
   return { name: 'Bazarr', url, ok, version, http: ok ? 200 : 0 };
 }
 
-export async function probeQbit(url?: string, auth?: { username?: string, password?: string, }): Promise<ServiceResult> {
+export async function probeQbit(url?: string, auth?: OptionalCredentials): Promise<ServiceResult> {
   const name = 'qBittorrent';
   if (!url) return { name, ok: false, reason: 'container not found' };
 
@@ -223,7 +244,7 @@ export async function probeQbit(url?: string, auth?: { username?: string, passwo
         dl = stats.dl;
         up = stats.up;
         total = stats.total;
-        listenPort = stats.listenPort ?? null;
+        listenPort = stats.listenPort;
       }
     }
   }
@@ -232,7 +253,9 @@ export async function probeQbit(url?: string, auth?: { username?: string, passwo
     return { name, url, ok: true, version, http: 200, dl, up, total, listenPort };
   }
 
-  const reason = versionResult.ok ? 'not whitelisted' : versionResult.err || versionResult.out || 'unreachable';
+  const errDetail = typeof versionResult.err === 'string' && versionResult.err !== '' ? versionResult.err : null;
+  const outDetail = versionResult.out.trim() === '' ? 'unreachable' : versionResult.out;
+  const reason = versionResult.ok ? 'not whitelisted' : (errDetail ?? outDetail);
   return { name, url, ok: false, reason, http: 0 };
 }
 
@@ -267,7 +290,7 @@ export async function probeCrossSeed(url?: string): Promise<ServiceResult> {
       ok: true,
       version: '',
       http: 200,
-      lastRun: stats?.lastTimestamp || null,
+      lastRun: stats?.lastTimestamp ?? null,
       torrentsAdded: typeof stats?.added === 'number' ? stats.added : null
     };
   }
@@ -277,7 +300,8 @@ export async function probeCrossSeed(url?: string): Promise<ServiceResult> {
 
 export async function probeGluetun(): Promise<ServiceResult> {
   const env = await dockerEnvMap('gluetun');
-  const pfExpected = (env.VPN_PORT_FORWARDING || env.PORT_FORWARDING || '').toLowerCase() === 'on';
+  const pfRaw = env.VPN_PORT_FORWARDING && env.VPN_PORT_FORWARDING !== '' ? env.VPN_PORT_FORWARDING : env.PORT_FORWARDING;
+  const pfExpected = (pfRaw ?? '').toLowerCase() === 'on';
 
   const [healthy, running, forwarded, uiMap, ip] = await Promise.all([
     dockerInspect('.State.Health.Status', 'gluetun'),
@@ -297,7 +321,7 @@ export async function probeGluetun(): Promise<ServiceResult> {
     ok: runningStatus && healthyStatus === 'healthy',
     running: runningStatus,
     healthy: healthyStatus,
-    vpnEgress: ip || '',
+    vpnEgress: ip,
     forwardedPort: forwarded.ok ? forwarded.out.trim() : '',
     pfExpected,
     uiHostPort
@@ -310,7 +334,7 @@ export async function probeQbitEgress(): Promise<ServiceResult> {
     name: 'qBittorrent egress',
     container: 'qbittorrent',
     ok: !!ip,
-    vpnEgress: ip || ''
+    vpnEgress: ip
   };
 }
 
@@ -344,11 +368,11 @@ export async function probeRecyclarr(): Promise<ServiceResult> {
     ok,
     version: '',
     http: 0,
-    detail: errorCount === 0 ? 'no errors (24h)' : `${errorCount} error${errorCount !== 1 ? 's' : ''} (24h)`
+    detail: errorCount === 0 ? 'no errors (24h)' : `${String(errorCount)} error${errorCount !== 1 ? 's' : ''} (24h)`
   };
 }
 
-async function qbitLogin(url: string, auth: { username: string, password: string, }): Promise<string | null> {
+async function qbitLogin(url: string, auth: RequiredCredentials): Promise<string | null> {
   const payload = `username=${encodeURIComponent(auth.username)}&password=${encodeURIComponent(auth.password)}`;
   const headers = qbitHeaders(url, ['Content-Type: application/x-www-form-urlencoded']);
   const headerSegment = buildHeaderArgs(headers);
@@ -363,10 +387,7 @@ async function qbitLogin(url: string, auth: { username: string, password: string
   return match ? match[1].trim() : null;
 }
 
-async function fetchQbitStats(
-  url: string,
-  cookie: string
-): Promise<{ dl: number | null, up: number | null, total: number | null, listenPort: number | null, } | null> {
+async function fetchQbitStats(url: string, cookie: string): Promise<QbitTransferStats | null> {
   const headers = qbitHeaders(url, [`Cookie: SID=${cookie}`]);
   const [transfer, torrents, prefs] = await Promise.all([
     httpGet(`${url}/api/v2/transfer/info`, { headers, timeout: 4 }),
@@ -410,8 +431,8 @@ async function fetchQbitStats(
 
 function summarizeNames(items: ToggleEntry[]): string {
   return items
-    .map(item => item?.name)
-    .filter(Boolean)
+    .map(item => item.name)
+    .filter((name): name is string => typeof name === 'string' && name.length > 0)
     .join(', ');
 }
 
@@ -422,7 +443,8 @@ async function checkArrDownloadClients(label: string, url?: string, apiKey?: str
   const headers = arrHeaders(apiKey);
   const response = await httpGet(`${url}/api/v3/downloadclient`, { headers, timeout: 4 });
   if (!response.ok) {
-    return { name: label, ok: false, detail: response.err || response.out || 'request failed' };
+    const detail = response.err ?? (response.out === '' ? 'request failed' : response.out);
+    return { name: label, ok: false, detail };
   }
 
   const parsed = safeParse(response.out);
@@ -457,7 +479,8 @@ export async function checkProwlarrIndexers(url?: string, apiKey?: string | null
   const headers = arrHeaders(apiKey);
   const response = await httpGet(`${url}/api/v1/indexer`, { headers, timeout: 4 });
   if (!response.ok) {
-    return { name, ok: false, detail: response.err || response.out || 'request failed' };
+    const detail = response.err ?? (response.out === '' ? 'request failed' : response.out);
+    return { name, ok: false, detail };
   }
 
   const parsed = safeParse(response.out);
@@ -487,21 +510,25 @@ export async function checkPfSyncHeartbeat(container = 'gluetun') {
   return {
     name,
     ok,
-    detail: `age=${ageSec}s`
+    detail: `age=${String(ageSec)}s`
   };
 }
 
-export async function checkDiskUsage(container = 'qbittorrent', path = process.env.MEDIA_DIR || '/config') {
+export async function checkDiskUsage(container = 'qbittorrent', pathInput: string | undefined = process.env.MEDIA_DIR) {
   const name = 'Disk usage';
+  const path = pathInput && pathInput !== '' ? pathInput : '/config';
   const usage = await dockerDiskUsage(container, path);
-  if (!usage || usage.usedPercent === null) {
+  if (!usage) {
+    return { name, ok: false, detail: 'unable to read disk usage' };
+  }
+  if (usage.usedPercent === null) {
     return { name, ok: false, detail: 'unable to read disk usage' };
   }
   const ok = usage.usedPercent < 90;
   return {
     name,
     ok,
-    detail: `${usage.usedPercent}% used (${usage.available} free)`
+    detail: `${String(usage.usedPercent)}% used (${usage.available} free)`
   };
 }
 
@@ -521,7 +548,7 @@ export async function checkImageAge(containers: string[] = [
       const created = await getImageCreationDate(container).catch(() => null);
       if (!created) return null;
       const days = Math.round((Date.now() - created) / (1000 * 60 * 60 * 24));
-      return `${container}: ${days}d`;
+      return `${container}: ${String(days)}d`;
     })
   );
   const detail = ages.filter(Boolean).join(' | ');

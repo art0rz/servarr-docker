@@ -5,19 +5,19 @@ import stylistic from '@stylistic/eslint-plugin';
 
 export default defineConfig([
     {
-        ignores: ['dist', 'node_modules'],
+        ignores: ['dist', 'node_modules', 'eslint.config.ts'],
     },
     {
         files: ['**/*.{ts,tsx,js,jsx}'],
         extends: [
             js.configs.recommended,
             ...tseslint.configs.strictTypeChecked,
-            ...tseslint.configs.stylisticTypeChecked,
+            ...tseslint.configs.stylisticTypeChecked, 
             stylistic.configs.recommended,
         ],
         languageOptions: {
             parserOptions: {
-                project: ['./tsconfig.json'],
+                project: ['./tsconfig.eslint.json'],
                 tsconfigRootDir: import.meta.dirname,
                 ecmaFeatures: {
                     jsx: true,

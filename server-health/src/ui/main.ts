@@ -59,14 +59,14 @@ const servicesEl = document.getElementById('services');
 const checksEl = document.getElementById('checks');
 const gitRefEl = document.getElementById('git-ref');
 const chartStatusEl = document.getElementById('chart-status');
-const chartCanvas = document.getElementById('qbit-chart') as HTMLCanvasElement;
+const chartCanvas = document.getElementById('qbit-chart') as HTMLCanvasElement | null;
 
 let qbitChart: Chart | null = null;
 
 function renderSummary(checks: CheckEntry[]) {
   if (!summaryEl) return;
-  const okCount = checks.filter((c) => c.ok).length;
-  summaryEl.innerHTML = `<div class="badge">${okCount} / ${checks.length} checks passing</div>`;
+  const okCount = checks.filter(check => check.ok).length;
+  summaryEl.innerHTML = `<div class="badge">${String(okCount)} / ${String(checks.length)} checks passing</div>`;
 }
 
 function renderVPN(vpn?: VpnEntry, qbitEgress?: QbitEgressEntry) {
@@ -74,16 +74,16 @@ function renderVPN(vpn?: VpnEntry, qbitEgress?: QbitEgressEntry) {
   const running = vpn?.running ? 'Yes' : 'No';
   vpnEl.innerHTML = `
     <div class="card">
-      <div class="status ${vpn?.ok ? 'ok' : 'fail'}">${vpn?.healthy || 'unknown'}</div>
+      <div class="status ${vpn?.ok ? 'ok' : 'fail'}">${vpn?.healthy ?? 'unknown'}</div>
       <div><strong>Gluetun VPN</strong></div>
       <div class="tag">Running: ${running}</div>
-      <div class="tag">Egress IP: ${vpn?.vpnEgress || 'Unknown'}</div>
-      <div class="tag">Forwarded Port: ${vpn?.forwardedPort || 'None'}</div>
+      <div class="tag">Egress IP: ${vpn?.vpnEgress ?? 'Unknown'}</div>
+      <div class="tag">Forwarded Port: ${vpn?.forwardedPort ?? 'None'}</div>
     </div>
     <div class="card">
       <div class="status ${qbitEgress?.ok ? 'ok' : 'fail'}">${qbitEgress?.ok ? 'OK' : 'FAIL'}</div>
       <div><strong>qBittorrent Egress</strong></div>
-      <div class="tag">Egress IP: ${qbitEgress?.vpnEgress || 'Unknown'}</div>
+      <div class="tag">Egress IP: ${qbitEgress?.vpnEgress ?? 'Unknown'}</div>
     </div>
   `;
 }
@@ -95,10 +95,10 @@ function renderServices(services: ServiceEntry[]) {
       const ok = service.ok;
       const extras: string[] = [];
       if (service.version) extras.push(`v${service.version}`);
-      if (typeof service.queue === 'number') extras.push(`Queue: ${service.queue}`);
-      if (typeof service.indexers === 'number') extras.push(`Indexers: ${service.indexers}`);
-      if (typeof service.total === 'number') extras.push(`Torrents: ${service.total}`);
-      if (service.sessions) extras.push(`Sessions: ${service.sessions}`);
+      if (typeof service.queue === 'number') extras.push(`Queue: ${String(service.queue)}`);
+      if (typeof service.indexers === 'number') extras.push(`Indexers: ${String(service.indexers)}`);
+      if (typeof service.total === 'number') extras.push(`Torrents: ${String(service.total)}`);
+      if (typeof service.sessions === 'number') extras.push(`Sessions: ${String(service.sessions)}`);
       if (service.detail) extras.push(service.detail);
       return `
         <div class="card" style="${!ok ? 'border-color: #f85149;' : ''}">
@@ -148,9 +148,9 @@ function renderChart(samples: HistorySample[]) {
     return;
   }
   chartStatusEl.textContent = '';
-  const labels = samples.map((s) => new Date(s.timestamp).toLocaleTimeString());
-  const dlData = samples.map((s) => s.dl / 1024 / 1024);
-  const upData = samples.map((s) => s.up / 1024 / 1024);
+  const labels = samples.map(sample => new Date(sample.timestamp).toLocaleTimeString());
+  const dlData = samples.map(sample => sample.dl / 1024 / 1024);
+  const upData = samples.map(sample => sample.up / 1024 / 1024);
   if (!qbitChart) {
     qbitChart = new Chart(chartCanvas, {
       type: 'line',
@@ -205,7 +205,11 @@ async function loadHistory() {
   renderChart(data.samples ?? []);
 }
 
-loadHealth();
-loadHistory();
-setInterval(loadHealth, 3000);
-setInterval(loadHistory, 5000);
+void loadHealth();
+void loadHistory();
+setInterval(() => {
+  void loadHealth();
+}, 3000);
+setInterval(() => {
+  void loadHistory();
+}, 5000);

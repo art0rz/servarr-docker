@@ -10,5 +10,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["src/server/**/*.ts", "src/server/**/*.tsx"]
+  "include": ["src/server/**/*"]
 }

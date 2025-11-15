@@ -4,14 +4,16 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-async function loadModule() {
+type ConfigModule = typeof import('../config.js');
+
+async function loadModule(): Promise<ConfigModule> {
   const url = new URL('../config.js', import.meta.url);
   url.searchParams.set('reload', Date.now().toString());
-  return import(url.href);
+  return import(url.href) as Promise<ConfigModule>;
 }
 
 function withTempConfig(name: string, fn: (ctx: { tempDir: string, }) => Promise<void>) {
-  test(name, async () => {
+  void test(name, async () => {
     const originalRoot = process.env.CONFIG_ROOT;
     const tempDir = mkdtempSync(path.join(tmpdir(), 'health-config-'));
     process.env.CONFIG_ROOT = tempDir;

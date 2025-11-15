@@ -9,7 +9,8 @@
     "start": "node dist/server/health-server.js",
     "dev": "vite",
     "test": "npm run build:server && node --test dist/server/tests/**/*.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.eslint.json"
   },
   "dependencies": {
     "@stylistic/eslint-plugin": "^5.5.0",

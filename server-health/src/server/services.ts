@@ -48,7 +48,8 @@ interface HistorySample {
   up: number;
 }
 
-const PROJECT = process.env.COMPOSE_PROJECT_NAME || 'servarr';
+const projectEnv = process.env.COMPOSE_PROJECT_NAME;
+const PROJECT = projectEnv && projectEnv !== '' ? projectEnv : 'servarr';
 const USE_VPN = process.env.USE_VPN === 'true';
 const HISTORY_RETENTION_MS = 10 * 60 * 1000;
 const GIT_REF = resolveGitRef();
@@ -106,10 +107,12 @@ export function useVpn(): boolean {
 export async function discoverServices(): Promise<Record<string, string>> {
   const urls: Record<string, string> = {};
   for (const [name, config] of Object.entries(SERVICE_CONFIG)) {
-    const port = parseInt(process.env[config.envPort] || `${config.defaultPort}`, 10);
+    const configuredPort = process.env[config.envPort];
+    const portValue = configuredPort && configuredPort !== '' ? configuredPort : String(config.defaultPort);
+    const port = parseInt(portValue, 10);
     const ip = await getContainerIP(name, config.network);
     if (ip && Number.isFinite(port)) {
-      urls[name] = `http://${ip}:${port}`;
+      urls[name] = `http://${ip}:${String(port)}`;
     }
   }
   return urls;
@@ -150,7 +153,7 @@ export async function runServicesProbe(): Promise<void> {
   const urls = await discoverServices();
   const apiKeys = await loadArrApiKeys();
   const qbitContext = await loadQbitDashboardContext();
-  const qbitUrl = qbitContext.url || (USE_VPN ? urls.gluetun : urls.qbittorrent);
+  const qbitUrl = qbitContext.url ?? (USE_VPN ? urls.gluetun : urls.qbittorrent);
   const probes = [
     probeSonarr(urls.sonarr, apiKeys.sonarr),
     probeRadarr(urls.radarr, apiKeys.radarr),
@@ -171,32 +174,47 @@ export async function runChecksProbe(): Promise<void> {
   const apiKeys = await loadArrApiKeys();
   const vpn = healthCache.vpn;
   const qbitEgress = healthCache.qbitEgress;
-  const qbitService = healthCache.services.find(s => s.name === 'qBittorrent') || null;
+  const qbitService = healthCache.services.find(s => s.name === 'qBittorrent') ?? null;
   const checks: CheckResult[] = [];
 
   if (USE_VPN) {
     checks.push(
-      { name: 'gluetun running', ok: vpn.running === true, detail: vpn.healthy ? `health=${vpn.healthy}` : '' },
-      { name: 'gluetun healthy', ok: vpn.healthy === 'healthy', detail: `uiHostPort=${vpn.uiHostPort || ''}` },
+      {
+        name: 'gluetun running',
+        ok: vpn.running === true,
+        detail: `health=${vpn.healthy ?? ''}`
+      },
+      {
+        name: 'gluetun healthy',
+        ok: vpn.healthy === 'healthy',
+        detail: `uiHostPort=${vpn.uiHostPort ?? ''}`
+      },
       {
         name: 'gluetun forwarded port',
-        ok: vpn.pfExpected ? /^\d+$/.test(vpn.forwardedPort || '') : true,
-        detail: vpn.pfExpected ? vpn.forwardedPort || 'pending' : 'disabled'
+        ok: vpn.pfExpected ? /^\d+$/.test(vpn.forwardedPort ?? '') : true,
+        detail: vpn.pfExpected
+          ? (vpn.forwardedPort && vpn.forwardedPort !== '' ? vpn.forwardedPort : 'pending')
+          : 'disabled'
       },
-      { name: 'qbittorrent egress via VPN', ok: !!qbitEgress?.vpnEgress, detail: qbitEgress?.vpnEgress || '' },
-      { name: 'gluetun egress IP', ok: !!vpn.vpnEgress, detail: vpn.vpnEgress || '' }
+      {
+        name: 'qbittorrent egress via VPN',
+        ok: !!qbitEgress.vpnEgress,
+        detail: qbitEgress.vpnEgress ?? ''
+      },
+      { name: 'gluetun egress IP', ok: !!vpn.vpnEgress, detail: vpn.vpnEgress ?? '' }
     );
 
-    const vpnPort = parseInt(vpn.forwardedPort || '', 10);
+    const forwardedLabel = vpn.forwardedPort && vpn.forwardedPort !== '' ? vpn.forwardedPort : 'missing';
+    const vpnPort = parseInt(vpn.forwardedPort ?? '', 10);
     let okPort = false;
     let detail = '';
     if (!Number.isInteger(vpnPort)) {
-      detail = `forwarded port invalid (${vpn.forwardedPort || 'missing'})`;
+      detail = `forwarded port invalid (${forwardedLabel})`;
     } else if (typeof qbitService?.listenPort !== 'number') {
       detail = 'qBittorrent listen port unavailable';
     } else {
       okPort = qbitService.listenPort === vpnPort;
-      detail = `vpn=${vpnPort}, qbit=${qbitService.listenPort}`;
+      detail = `vpn=${String(vpnPort)}, qbit=${String(qbitService.listenPort)}`;
     }
     checks.push({ name: 'qbittorrent port matches VPN forwarded port', ok: okPort, detail });
   }
