@@ -31,8 +31,8 @@ export interface CheckResult {
 }
 
 export interface HealthState {
-  vpn: ServiceResult;
-  qbitEgress: ServiceResult;
+  vpn: ServiceResult | null;
+  qbitEgress: ServiceResult | null;
   services: ServiceResult[];
   checks: CheckResult[];
   nets: string[];
@@ -72,12 +72,12 @@ const SERVICE_CONFIG: Record<
 const qbitHistory: HistorySample[] = [];
 
 let healthCache: HealthState = {
-  vpn: { name: 'VPN', ok: false, running: false, healthy: null },
+  vpn: USE_VPN ? { name: 'VPN', ok: false, running: false, healthy: null } : null,
   qbitEgress: USE_VPN
     ? { name: 'qBittorrent egress', ok: false, vpnEgress: '' }
-    : { name: 'qBittorrent egress', ok: true, vpnEgress: 'VPN disabled' },
+    : null,
   services: [],
-  checks: USE_VPN ? [] : [{ name: 'VPN status', ok: true, detail: 'disabled (no VPN configured)' }],
+  checks: [],
   nets: [],
   updatedAt: null,
   updating: true,
@@ -140,8 +140,8 @@ export function getHistorySamples(): HistorySample[] {
 export async function runVpnProbe(): Promise<void> {
   if (!USE_VPN) {
     publish({
-      vpn: { name: 'VPN', ok: false, running: false, healthy: null },
-      qbitEgress: { name: 'qBittorrent egress', ok: true, vpnEgress: 'VPN disabled' }
+      vpn: null,
+      qbitEgress: null
     });
     return;
   }
@@ -177,7 +177,7 @@ export async function runChecksProbe(): Promise<void> {
   const qbitService = healthCache.services.find(s => s.name === 'qBittorrent') ?? null;
   const checks: CheckResult[] = [];
 
-  if (USE_VPN) {
+  if (USE_VPN && vpn && qbitEgress) {
     checks.push(
       {
         name: 'gluetun running',
@@ -219,9 +219,16 @@ export async function runChecksProbe(): Promise<void> {
     checks.push({ name: 'qbittorrent port matches VPN forwarded port', ok: okPort, detail });
   }
 
-  if (!USE_VPN) {
-    checks.push({ name: 'VPN status', ok: true, detail: 'disabled (no VPN configured)' });
-  }
+  const systemTasks = USE_VPN
+    ? [
+      checkPfSyncHeartbeat(),
+      checkDiskUsage(),
+      checkImageAge()
+    ]
+    : [
+      checkDiskUsage(),
+      checkImageAge()
+    ];
 
   const [integrationChecks, systemChecks] = await Promise.all([
     Promise.all([
@@ -229,11 +236,7 @@ export async function runChecksProbe(): Promise<void> {
       checkRadarrDownloadClients(urls.radarr, apiKeys.radarr),
       checkProwlarrIndexers(urls.prowlarr, apiKeys.prowlarr)
     ]),
-    Promise.all([
-      USE_VPN ? checkPfSyncHeartbeat() : Promise.resolve({ name: 'pf-sync heartbeat', ok: true, detail: 'vpn disabled' }),
-      checkDiskUsage(),
-      checkImageAge()
-    ])
+    Promise.all(systemTasks)
   ]);
 
   publish({ checks: [...checks, ...integrationChecks, ...systemChecks] });

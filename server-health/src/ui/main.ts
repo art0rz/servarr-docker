@@ -35,8 +35,8 @@ interface QbitEgressEntry {
 }
 
 interface HealthResponse {
-  vpn?: VpnEntry;
-  qbitEgress?: QbitEgressEntry;
+  vpn?: VpnEntry | null;
+  qbitEgress?: QbitEgressEntry | null;
   services?: ServiceEntry[];
   checks?: CheckEntry[];
   gitRef?: string;
@@ -69,21 +69,28 @@ function renderSummary(checks: CheckEntry[]) {
   summaryEl.innerHTML = `<div class="badge">${String(okCount)} / ${String(checks.length)} checks passing</div>`;
 }
 
-function renderVPN(vpn?: VpnEntry, qbitEgress?: QbitEgressEntry) {
-  if (!vpnEl) return;
-  const running = vpn?.running ? 'Yes' : 'No';
+function renderVPN(vpn?: VpnEntry | null, qbitEgress?: QbitEgressEntry | null) {
+  const wrapper = document.getElementById('vpn-section');
+  if (!vpnEl || !wrapper) return;
+  if (!vpn || !qbitEgress) {
+    wrapper.style.display = 'none';
+    vpnEl.innerHTML = '';
+    return;
+  }
+  wrapper.style.display = '';
+  const running = vpn.running ? 'Yes' : 'No';
   vpnEl.innerHTML = `
     <div class="card">
-      <div class="status ${vpn?.ok ? 'ok' : 'fail'}">${vpn?.healthy ?? 'unknown'}</div>
+      <div class="status ${vpn.ok ? 'ok' : 'fail'}">${vpn.healthy ?? 'unknown'}</div>
       <div><strong>Gluetun VPN</strong></div>
       <div class="tag">Running: ${running}</div>
-      <div class="tag">Egress IP: ${vpn?.vpnEgress ?? 'Unknown'}</div>
-      <div class="tag">Forwarded Port: ${vpn?.forwardedPort ?? 'None'}</div>
+      <div class="tag">Egress IP: ${vpn.vpnEgress ?? 'Unknown'}</div>
+      <div class="tag">Forwarded Port: ${vpn.forwardedPort ?? 'None'}</div>
     </div>
     <div class="card">
-      <div class="status ${qbitEgress?.ok ? 'ok' : 'fail'}">${qbitEgress?.ok ? 'OK' : 'FAIL'}</div>
+      <div class="status ${qbitEgress.ok ? 'ok' : 'fail'}">${qbitEgress.ok ? 'OK' : 'FAIL'}</div>
       <div><strong>qBittorrent Egress</strong></div>
-      <div class="tag">Egress IP: ${qbitEgress?.vpnEgress ?? 'Unknown'}</div>
+      <div class="tag">Egress IP: ${qbitEgress.vpnEgress ?? 'Unknown'}</div>
     </div>
   `;
 }
