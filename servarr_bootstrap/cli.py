@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
 from datetime import datetime
 from collections import OrderedDict
 from pathlib import Path
@@ -37,6 +39,11 @@ CLEAN_STATUS_STYLES = {
     "skipped": "yellow",
     "failed": "red",
 }
+ERROR_HINTS = [
+    ("Config file not found", "Start the Sonarr/Radarr/Prowlarr containers once so config.xml is created, then rerun bootstrap."),
+    ("Unable to authenticate with qBittorrent", "Give qBittorrent a few more seconds to start and ensure the WebUI port isn't in use."),
+    ("docker compose", "Verify the Docker daemon is running and that you have permission to run docker commands (try `docker ps`)."),
+]
 
 
 def configure_logging(verbose: bool) -> Path:
@@ -210,7 +217,11 @@ def check(
     context["options"] = merged_options
     runtime = _ensure_runtime_context(ctx, require_credentials=False)
     LOGGER.info("Running standalone sanity check")
-    _run_sanity_phase(runtime, ctx.obj.get("log_path"))
+    if merged_options.dry_run:
+        CONSOLE.print("[cyan]Sanity:[/] Skipped (dry-run)")
+    else:
+        _validate_dependencies(require_docker=True)
+        _run_sanity_phase(runtime, ctx.obj.get("log_path"))
 
 
 @APP.command()
@@ -270,6 +281,8 @@ def clean(
     for key, default in default_env_values().items():
         clean_env.setdefault(key, default)
 
+    _validate_dependencies(require_docker=not runtime.options.dry_run)
+
     clean_error: Optional[Exception] = None
     steps = [
         ProgressStep("docker", "Stop containers", "Waiting"),
@@ -327,6 +340,7 @@ def run_app() -> None:
 
 def _execute_bootstrap_flow(runtime: RuntimeContext, log_path: Optional[str]) -> None:
     """Execute setup/integration flow followed by the final sanity scan."""
+    _validate_dependencies(require_docker=not runtime.options.dry_run)
     try:
         perform_setup(ROOT_DIR, runtime, CONSOLE)
         if runtime.options.dry_run:
@@ -336,6 +350,9 @@ def _execute_bootstrap_flow(runtime: RuntimeContext, log_path: Optional[str]) ->
     except (SetupError, IntegrationError) as exc:
         LOGGER.exception("Setup failed")
         CONSOLE.print(f"[bold red]Setup failed:[/bold red] {exc}")
+        hint = _hint_for_exception(exc)
+        if hint:
+            CONSOLE.print(f"[yellow]Hint:[/] {hint}")
         CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
         raise typer.Exit(code=1) from exc
     if runtime.options.dry_run:
@@ -361,6 +378,32 @@ def _print_completion(runtime: RuntimeContext, log_path: Optional[str]) -> None:
     )
     if runtime.options.quickstart:
         CONSOLE.print("[cyan]Quickstart credentials:[/] servarr / servarr")
+
+
+def _validate_dependencies(require_docker: bool) -> None:
+    issues: list[str] = []
+    if require_docker:
+        if shutil.which("docker") is None:
+            issues.append("Docker CLI not found. Install Docker and ensure it is in PATH.")
+        else:
+            try:
+                subprocess.run(["docker", "compose", "version"], check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError:
+                issues.append("`docker compose` failed. Upgrade Docker Compose or install the compose plugin.")
+            except FileNotFoundError:
+                issues.append("`docker compose` is unavailable. Install Docker Compose or use Docker 20.10+ with the compose plugin.")
+    if issues:
+        for issue in issues:
+            CONSOLE.print(f"[bold red]Dependency error:[/bold red] {issue}")
+        raise typer.Exit(code=2)
+
+
+def _hint_for_exception(exc: Exception) -> Optional[str]:
+    message = str(exc)
+    for needle, hint in ERROR_HINTS:
+        if needle in message:
+            return hint
+    return None
 def _run_sanity_phase(runtime: RuntimeContext, log_path: Optional[str]) -> None:
     """Execute the sanity scan and render results, handling failures uniformly."""
     try:
@@ -370,5 +413,8 @@ def _run_sanity_phase(runtime: RuntimeContext, log_path: Optional[str]) -> None:
         LOGGER.exception("Sanity check failed")
         log_hint = log_path or (LOG_DIR / "bootstrap-latest.log")
         CONSOLE.print(f"[bold red]Sanity check failed:[/bold red] {exc}")
+        hint = _hint_for_exception(exc)
+        if hint:
+            CONSOLE.print(f"[yellow]Hint:[/] {hint}")
         CONSOLE.print(f"[dim]See {log_hint} for details.[/dim]")
         raise typer.Exit(code=1) from exc

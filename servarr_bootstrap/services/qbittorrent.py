@@ -42,17 +42,7 @@ class QbitClient:
             self.console.print("[magenta][dry-run][/magenta] qBittorrent: would configure credentials and LAN bypass")
             return False
 
-        login_success = False
-        current_label = None
-        for attempt in range(1, 6):
-            login_success, current_label = self._attempt_bootstrap_login(desired_username, desired_password)
-            if login_success:
-                break
-            LOGGER.warning(
-                "qBittorrent login failed (attempt %s/5). Waiting for the WebUI to become available...", attempt
-            )
-            time.sleep(5)
-
+        login_success, current_label = self._establish_session(desired_username, desired_password)
         if not login_success:
             raise QbitClientError("Unable to authenticate with qBittorrent; cannot configure preferences.")
 
@@ -64,7 +54,8 @@ class QbitClient:
                     "web_ui_password": desired_password,
                 }
             )
-            self._attempt_login(desired_username, desired_password)
+            if not self._attempt_login(desired_username, desired_password):
+                raise QbitClientError("Failed to re-authenticate with qBittorrent after updating credentials.")
 
         subnet_whitelist = "127.0.0.1/32\n172.18.0.0/16\n172.19.0.0/16"
         if lan_subnet:
@@ -192,23 +183,34 @@ class QbitClient:
             return user, password
         return None
 
-    def _attempt_bootstrap_login(self, desired_username: str, desired_password: str) -> tuple[bool, Optional[str]]:
-        login_success = self._attempt_login(desired_username, desired_password)
-        current_label = "bootstrap credentials" if login_success else None
-
-        if not login_success:
-            temp_creds = self._read_temp_credentials()
-            if temp_creds:
-                temp_user, temp_pass = temp_creds
+    def _establish_session(self, desired_username: Optional[str], desired_password: Optional[str]) -> tuple[bool, Optional[str]]:
+        attempts = 10
+        delay = 3
+        for attempt in range(1, attempts + 1):
+            credential_sources: list[tuple[str, Optional[str], Optional[str]]] = []
+            if desired_username and desired_password:
+                credential_sources.append(("bootstrap credentials", desired_username, desired_password))
+            temp = self._read_temp_credentials()
+            if temp:
+                temp_user, temp_pass = temp
                 LOGGER.info("Trying qBittorrent temporary credentials from container logs")
-                login_success = self._attempt_login(temp_user, temp_pass)
-                current_label = "temporary credentials" if login_success else current_label
+                credential_sources.append(("temporary credentials", temp_user, temp_pass))
+            credential_sources.append(("default credentials", "admin", "adminadmin"))
 
-        if not login_success:
-            login_success = self._attempt_login("admin", "adminadmin")
-            current_label = "default credentials" if login_success else current_label
+            for label, user, password in credential_sources:
+                if not user or not password:
+                    continue
+                if self._attempt_login(user, password):
+                    return True, label
 
-        return login_success, current_label
+            LOGGER.warning(
+                "qBittorrent login failed (attempt %s/%s). Waiting %ss before retrying...",
+                attempt,
+                attempts,
+                delay,
+            )
+            time.sleep(delay)
+        return False, None
 
     def _ensure_categories(self, category_paths: Dict[str, Path]) -> None:
         try:
