@@ -31,3 +31,9 @@ jobs:
         env:
           CI: true
         run: ./bootstrap.sh --quickstart --non-interactive --dry-run
+
+      - name: Run health dashboard tests
+        working-directory: server-health
+        run: |
+          npm ci
+          npm test

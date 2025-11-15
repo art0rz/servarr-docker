@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stack Health</title>
+</head>
+<body>
+  <header>
+    <strong>Stack Health</strong>
+    <span id="git-ref" class="tag"></span>
+  </header>
+  <main>
+    <div id="summary"></div>
+    <div class="chart-container">
+      <canvas id="qbit-chart"></canvas>
+      <div id="chart-status" class="tag"></div>
+    </div>
+    <h2>VPN</h2>
+    <div class="grid" id="vpn"></div>
+    <h2>Services</h2>
+    <div class="grid" id="services"></div>
+    <h2>Checks</h2>
+    <div class="grid" id="checks"></div>
+  </main>
+  <script type="module" src="/main.ts"></script>
+</body>
+</html>
