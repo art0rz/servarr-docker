@@ -118,7 +118,9 @@ def _ensure_config_dirs(config_root: Path, console: Console, dry_run: bool) -> N
             path.mkdir(parents=True, exist_ok=True)
         created.append(str(path))
     if created:
-        console.print(f"[cyan]Config:[/] {'[dry-run] ' if dry_run else ''}Created {len(created)} directories")
+        count = len(created)
+        console.print(f"[cyan]Config:[/] {'[dry-run] ' if dry_run else ''}Created {count} director{'ies' if count != 1 else 'y'}")
+        LOGGER.debug("Created config directories: %s", ", ".join(created))
 
 
 def _ensure_media_dirs(media_dir: Path, console: Console, dry_run: bool) -> None:
@@ -132,7 +134,9 @@ def _ensure_media_dirs(media_dir: Path, console: Console, dry_run: bool) -> None
             target.mkdir(parents=True, exist_ok=True)
         created.append(str(target))
     if created:
-        console.print(f"[cyan]Media:[/] {'[dry-run] ' if dry_run else ''}Created {len(created)} directories")
+        count = len(created)
+        console.print(f"[cyan]Media:[/] {'[dry-run] ' if dry_run else ''}Created {count} director{'ies' if count != 1 else 'y'}")
+        LOGGER.debug("Created media directories: %s", ", ".join(created))
 
 
 def _apply_permissions(media_dir: Path, puid: Optional[str], pgid: Optional[str], console: Console, dry_run: bool) -> None:
