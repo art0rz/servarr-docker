@@ -51,11 +51,11 @@ class SanityTests(unittest.TestCase):
             self._setup_dirs(root)
             runtime = make_runtime({"MEDIA_DIR": "/data", "PUID": "1000", "PGID": "1000"})
 
-            def fake_run(cmd):
+            def fake_run(cmd, env=None):
                 if "config" in cmd:
                     return make_completed("sonarr\nradarr\n")
                 if "ps" in cmd:
-                    data = '[{"Service": "sonarr", "State": "running"}, {"Service": "radarr", "State": "running"}]'
+                    data = '{"Service": "sonarr", "State": "running"}\n{"Service": "radarr", "State": "running"}\n'
                     return make_completed(data)
                 return make_completed("")
 

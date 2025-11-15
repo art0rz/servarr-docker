@@ -179,6 +179,27 @@ def run(
 
 
 @APP.command()
+def check(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(False, "--dry-run", help="(Ignored) maintained for CLI parity."),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Disable interactive prompts."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show debug logs in the terminal."),
+) -> None:
+    """Run the sanity scan without provisioning services."""
+    context = ctx.ensure_object(dict)
+    stored_options: RuntimeOptions = context.get("options", RuntimeOptions())
+    merged_options = RuntimeOptions(
+        dry_run=stored_options.dry_run or dry_run,
+        non_interactive=stored_options.non_interactive or non_interactive,
+        verbose=stored_options.verbose or verbose,
+    )
+    context["options"] = merged_options
+    runtime = _ensure_runtime_context(ctx, require_credentials=False)
+    LOGGER.info("Running standalone sanity check")
+    _run_sanity_phase(runtime, ctx.obj.get("log_path"))
+
+
+@APP.command()
 def clean(
     ctx: typer.Context,
     force: bool = typer.Option(
@@ -299,14 +320,7 @@ def _execute_bootstrap_flow(runtime: RuntimeContext, log_path: Optional[str]) ->
         CONSOLE.print(f"[bold red]Setup failed:[/bold red] {exc}")
         CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
         raise typer.Exit(code=1) from exc
-    try:
-        report = run_sanity_scan(ROOT_DIR, runtime)
-        render_report(report, CONSOLE)
-    except Exception as exc:
-        LOGGER.exception("Environment check failed")
-        CONSOLE.print(f"[bold red]Environment check failed:[/bold red] {exc}")
-        CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
-        raise typer.Exit(code=1) from exc
+    _run_sanity_phase(runtime, log_path)
     _print_completion(runtime, log_path)
 
 
@@ -324,3 +338,14 @@ def _print_completion(runtime: RuntimeContext, log_path: Optional[str]) -> None:
             border_style="green",
         )
     )
+def _run_sanity_phase(runtime: RuntimeContext, log_path: Optional[str]) -> None:
+    """Execute the sanity scan and render results, handling failures uniformly."""
+    try:
+        report = run_sanity_scan(ROOT_DIR, runtime)
+        render_report(report, CONSOLE)
+    except Exception as exc:
+        LOGGER.exception("Sanity check failed")
+        log_hint = log_path or (LOG_DIR / "bootstrap-latest.log")
+        CONSOLE.print(f"[bold red]Sanity check failed:[/bold red] {exc}")
+        CONSOLE.print(f"[dim]See {log_hint} for details.[/dim]")
+        raise typer.Exit(code=1) from exc

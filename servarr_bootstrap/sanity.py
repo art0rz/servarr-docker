@@ -16,6 +16,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .config import RuntimeContext
+from .env_setup import default_env_values
 
 LOGGER = logging.getLogger("servarr.bootstrap.sanity")
 REQUIRED_CONFIG_DIRS: Sequence[str] = (
@@ -83,7 +84,7 @@ def run_sanity_scan(root_dir: Path, runtime: RuntimeContext) -> SanityReport:
     items.append(_check_docker_cli())
     items.append(_check_docker_daemon())
     items.append(_check_compose_file(root_dir))
-    items.append(_check_compose_services(root_dir))
+    items.append(_check_compose_services(root_dir, runtime))
     items.append(_check_config_directories(root_dir / "config"))
     items.append(_check_env_settings(runtime))
     items.extend(_check_service_apis(runtime))
@@ -139,10 +140,11 @@ def _check_compose_file(root_dir: Path) -> SanityItem:
     )
 
 
-def _check_compose_services(root_dir: Path) -> SanityItem:
+def _check_compose_services(root_dir: Path, runtime: RuntimeContext) -> SanityItem:
+    compose_env = _compose_env(runtime)
     services_cmd = ("docker", "compose", "--project-directory", str(root_dir), "config", "--services")
     try:
-        services_result = _run_subprocess(services_cmd)
+        services_result = _run_subprocess(services_cmd, env=compose_env)
         services = [line.strip() for line in services_result.stdout.splitlines() if line.strip()]
     except subprocess.SubprocessError as exc:
         return SanityItem(
@@ -160,10 +162,25 @@ def _check_compose_services(root_dir: Path) -> SanityItem:
             remediation="Ensure docker-compose.yml declares the Servarr stack.",
         )
 
-    ps_cmd = ("docker", "compose", "--project-directory", str(root_dir), "ps", "--format", "json")
+    ps_cmd = ("docker", "compose", "--project-directory", str(root_dir), "ps", "--format", "{{json .}}")
     try:
-        ps_result = _run_subprocess(ps_cmd)
-        container_rows = json.loads(ps_result.stdout or "[]")
+        ps_result = _run_subprocess(ps_cmd, env=compose_env)
+        container_rows: List[dict] = []
+        for idx, line in enumerate(ps_result.stdout.splitlines(), start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError as exc:
+                return SanityItem(
+                    name="Compose services",
+                    status=SanityStatus.WARN,
+                    detail=f"Failed to parse docker compose status output on line {idx}: {exc}",
+                    remediation="Ensure your Docker Compose version supports templated --format output.",
+                )
+            if isinstance(parsed, dict):
+                container_rows.append(parsed)
     except subprocess.SubprocessError as exc:
         return SanityItem(
             name="Compose services",
@@ -171,22 +188,6 @@ def _check_compose_services(root_dir: Path) -> SanityItem:
             detail=f"Unable to inspect container status ({exc}).",
             remediation="Run `docker compose up -d` before continuing.",
         )
-    except json.JSONDecodeError as exc:
-        return SanityItem(
-            name="Compose services",
-            status=SanityStatus.WARN,
-            detail=f"Failed to parse docker compose status output ({exc}).",
-            remediation="Upgrade Docker Compose to a version that supports JSON output.",
-        )
-
-    if not isinstance(container_rows, list):
-        return SanityItem(
-            name="Compose services",
-            status=SanityStatus.WARN,
-            detail="docker compose ps returned unexpected output; try upgrading Docker Compose",
-            remediation="Upgrade Docker Compose to support JSON ps output.",
-        )
-
     running = sum(1 for row in container_rows if isinstance(row, dict) and row.get("State") == "running")
     total_defined = len(services)
     detail = f"{running}/{total_defined} services running."
@@ -320,6 +321,13 @@ def render_report(report: SanityReport, console: Console) -> None:
         console.print("[red]Resolve the errors above before continuing.[/red]")
 
 
-def _run_subprocess(cmd: Sequence[str]) -> subprocess.CompletedProcess[str]:
+def _run_subprocess(cmd: Sequence[str], env: Dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     LOGGER.debug("Executing command: %s", " ".join(cmd))
-    return subprocess.run(cmd, check=True, capture_output=True, text=True)
+    return subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
+
+
+def _compose_env(runtime: RuntimeContext) -> Dict[str, str]:
+    env = dict(runtime.env.merged)
+    for key, value in default_env_values().items():
+        env.setdefault(key, value)
+    return env

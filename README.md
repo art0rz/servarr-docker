@@ -6,7 +6,7 @@ Automated Docker Compose stack for qBittorrent, the Arr suite, Gluetun VPN, pf-s
 
 ## Highlights
 
-- **Opinionated automation** – Single `./bootstrap.sh` run handles config prompts, directory setup, Docker orchestration, integrations, and a final sanity scan.
+- **Opinionated automation** – Single `./bootstrap.sh` run handles config prompts, directory setup, Docker orchestration, integrations, and a final sanity scan (also available via `./bootstrap.sh check`).
 - **VPN-aware torrenting** – qBittorrent lives behind Gluetun; pf-sync reads Gluetun’s forwarded port and updates qBittorrent automatically.
 - **Arr ecosystem** – Sonarr, Radarr, Prowlarr, Bazarr, Recyclarr, and Cross-Seed are wired together out of the box.
 - **Health monitoring** – Health server shows container status, VPN info, and forwarded-port parity via a web dashboard.
@@ -57,7 +57,7 @@ Host port forwarding is configurable via `.env`; the Vagrant VM also forwards ea
    - Ports, pf-sync, and pf health check
 
 4. **Let the script run**
-   - Sanity scan → directory setup → Docker orchestration (with live table) → integrations → final health scan → summary.
+   - Directory + permission setup → Docker orchestration (with live table) → integrations → final sanity scan + health summary (re-run later via `./bootstrap.sh check`).
 
 5. **Open services**
    - `http://localhost:8989` (Sonarr), `http://localhost:7878` (Radarr), `http://localhost:9696` (Prowlarr), `http://localhost:6767` (Bazarr), `http://localhost:2468` (Cross-Seed), `http://localhost:8080` (qBit via Gluetun), `http://localhost:3000` (health dashboard).
@@ -120,6 +120,18 @@ Update any setting by editing `.env` and rerunning the bootstrapper (changes are
 | Health       | `http://localhost:3000` | Shows service status, VPN info, pf-sync check     |
 
 For Vagrant, replace `localhost:<port>` with the forwarded host ports listed in the `Vagrantfile`.
+
+---
+
+## Standalone Sanity Check
+
+Use the built-in check command to rerun readiness diagnostics without touching containers:
+
+```bash
+./bootstrap.sh check
+```
+
+It hydrates the current `.env`, verifies Docker/Compose availability, ensures config directories exist, and probes Arr/qBittorrent/Bazarr/Prowlarr HTTP endpoints. Failures are summarized in the Rich table; details live in `logs/bootstrap-latest.log`.
 
 ---
 
