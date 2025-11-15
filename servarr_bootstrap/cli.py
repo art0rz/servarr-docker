@@ -230,35 +230,35 @@ def clean(
 
     plan = CleanPlan(remove_logs=remove_logs, remove_venv=remove_venv)
 
-  clean_env = dict(runtime.env.merged)
-  for key, default in default_env_values().items():
-    clean_env.setdefault(key, default)
+    clean_env = dict(runtime.env.merged)
+    for key, default in default_env_values().items():
+        clean_env.setdefault(key, default)
 
-  clean_error: Optional[Exception] = None
-  steps = [
-      ProgressStep("docker", "Stop containers", "Waiting"),
-      ProgressStep("configs", "Remove config directories", "Waiting"),
-      ProgressStep("state", "Remove bootstrap state", "Waiting"),
-      ProgressStep("logs", "Remove bootstrap logs", "Skipped" if not plan.remove_logs else "Waiting"),
-      ProgressStep("venv", "Remove virtualenv", "Skipped" if not plan.remove_venv else "Waiting"),
-  ]
+    clean_error: Optional[Exception] = None
+    steps = [
+        ProgressStep("docker", "Stop containers", "Waiting"),
+        ProgressStep("configs", "Remove config directories", "Waiting"),
+        ProgressStep("state", "Remove bootstrap state", "Waiting"),
+        ProgressStep("logs", "Remove bootstrap logs", "Skipped" if not plan.remove_logs else "Waiting"),
+        ProgressStep("venv", "Remove virtualenv", "Skipped" if not plan.remove_venv else "Waiting"),
+    ]
 
-  with ProgressTracker("Clean Progress", steps, console=CONSOLE) as tracker:
-      def update_and_render(step: str, status: str, detail: str = "") -> None:
-          tracker.update(step, status=status, details=detail or tracker.steps[step].details)
+    with ProgressTracker("Clean Progress", steps, console=CONSOLE) as tracker:
+        def update_and_render(step: str, status: str, detail: str = "") -> None:
+            tracker.update(step, status=status, details=detail or tracker.steps[step].details)
 
-      try:
-          perform_clean(
-              root_dir=ROOT_DIR,
-              log_dir=LOG_DIR,
-              runtime=runtime,
-              plan=plan,
-              current_log=context.get("log_path"),
-              status_callback=update_and_render,
-              command_env=clean_env,
-          )
-      except CleanError as exc:
-          clean_error = exc
+        try:
+            perform_clean(
+                root_dir=ROOT_DIR,
+                log_dir=LOG_DIR,
+                runtime=runtime,
+                plan=plan,
+                current_log=context.get("log_path"),
+                status_callback=update_and_render,
+                command_env=clean_env,
+            )
+        except CleanError as exc:
+            clean_error = exc
 
     if clean_error:
         CONSOLE.print(f"[bold red]Clean failed:[/bold red] {clean_error}")
