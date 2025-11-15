@@ -58,7 +58,7 @@ class ConfigError(RuntimeError):
 
 def detect_ci(env: Mapping[str, str] | None = None) -> bool:
     """Return True if the provided environment indicates a CI environment."""
-    environment = env or os.environ
+    environment = env if env is not None else os.environ
     for key in CI_ENV_VARS:
         value = environment.get(key)
         if value and value.strip().lower() in {"1", "true", "yes", "on"}:

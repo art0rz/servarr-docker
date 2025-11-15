@@ -329,13 +329,19 @@ def _execute_bootstrap_flow(runtime: RuntimeContext, log_path: Optional[str]) ->
     """Execute setup/integration flow followed by the final sanity scan."""
     try:
         perform_setup(ROOT_DIR, runtime, CONSOLE)
-        run_integration_tasks(ROOT_DIR, runtime, CONSOLE)
+        if runtime.options.dry_run:
+            CONSOLE.print("[cyan]Integrations:[/] Skipped (dry-run)")
+        else:
+            run_integration_tasks(ROOT_DIR, runtime, CONSOLE)
     except (SetupError, IntegrationError) as exc:
         LOGGER.exception("Setup failed")
         CONSOLE.print(f"[bold red]Setup failed:[/bold red] {exc}")
         CONSOLE.print(f"[dim]See {LOG_DIR / 'bootstrap-latest.log'} for details.[/dim]")
         raise typer.Exit(code=1) from exc
-    _run_sanity_phase(runtime, log_path)
+    if runtime.options.dry_run:
+        CONSOLE.print("[cyan]Sanity:[/] Skipped (dry-run)")
+    else:
+        _run_sanity_phase(runtime, log_path)
     _print_completion(runtime, log_path)
 
 
