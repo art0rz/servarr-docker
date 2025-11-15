@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from rich.console import Console
 
@@ -132,13 +134,24 @@ class IntegrationRunner:
             )
             if configured and media_dir_value:
                 client.ensure_storage_layout(Path(media_dir_value))
+            pf_status, pf_detail = ("skipped", "")
+            if configured:
+                pf_status, pf_detail = self._sync_forwarded_port(client)
         except QbitClientError as exc:
             LOGGER.warning("qBittorrent configuration skipped: %s", exc)
             return "skipped", f"Skipped: {exc}"
-        detail = "WebUI credentials synchronized"
+
+        detail_parts: List[str] = []
         if configured and media_dir_value:
-            detail = "Credentials + storage layout updated"
-        return "done", detail
+            detail_parts.append("Credentials + storage layout updated")
+        elif configured:
+            detail_parts.append("Credentials synchronized")
+        else:
+            detail_parts.append("Skipped credential sync (credentials missing)")
+        if pf_detail:
+            detail_parts.append(pf_detail)
+        status = "done" if configured else "skipped"
+        return status, "; ".join(detail_parts)
 
     def configure_arr_clients(self) -> tuple[str, str]:
         use_vpn = self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"}
@@ -364,3 +377,57 @@ class IntegrationRunner:
         except ValueError:
             self.console.print(f"[yellow]Invalid integer for {key}: {value}. Using default {default}[/yellow]")
             return default
+
+    def _sync_forwarded_port(self, client: QbitClient) -> tuple[str, str]:
+        if not self._use_vpn():
+            return "skipped", ""
+        if not self._port_forwarding_enabled():
+            return "skipped", "Port forwarding disabled"
+        port = self._await_forwarded_port(timeout=60, interval=5)
+        if port is None:
+            return "skipped", "Forwarded port not available"
+        try:
+            client.ensure_listen_port(port)
+            return "done", f"Listen port set to {port}"
+        except QbitClientError as exc:
+            LOGGER.warning("Failed to synchronize qBittorrent listen port: %s", exc)
+            return "skipped", f"Listen port update failed ({exc})"
+
+    def _await_forwarded_port(self, timeout: int, interval: int) -> Optional[int]:
+        end = time.time() + timeout
+        while time.time() < end:
+            port = self._read_forwarded_port()
+            if port:
+                return port
+            time.sleep(interval)
+        return None
+
+    def _read_forwarded_port(self) -> Optional[int]:
+        try:
+            result = subprocess.run(
+                ["docker", "exec", "gluetun", "sh", "-c", "cat /tmp/gluetun/forwarded_port 2>/dev/null || true"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            LOGGER.debug("Docker CLI not available for forwarded port sync")
+            return None
+        if result.returncode != 0:
+            return None
+        value = result.stdout.strip()
+        return int(value) if value.isdigit() else None
+
+    def _use_vpn(self) -> bool:
+        return self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"}
+
+    def _port_forwarding_enabled(self) -> bool:
+        flag = self.env.get("VPN_PORT_FORWARDING_ENABLED")
+        if flag:
+            normalized = flag.strip().lower()
+            return normalized in {"y", "yes", "true", "1"}
+        compose_flag = self.env.get("VPN_PORT_FORWARDING")
+        if compose_flag:
+            return compose_flag.strip().lower() not in {"off", "false", "0", "no"}
+        provider = self.env.get("PORT_FORWARDING_PROVIDER", "")
+        return bool(provider.strip())

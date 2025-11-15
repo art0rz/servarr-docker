@@ -117,6 +117,20 @@ class QbitClient:
         self._ensure_categories(category_paths)
         self.console.print("[green]qBittorrent:[/] Download paths and categories configured")
 
+    def ensure_listen_port(self, listen_port: int) -> None:
+        """Set a specific qBittorrent listen port and disable random port selection."""
+        if listen_port <= 0:
+            raise QbitClientError(f"Invalid listen port: {listen_port}")
+        LOGGER.info("Ensuring qBittorrent listen port is %s", listen_port)
+        if self.dry_run:
+            return
+        self._set_preferences(
+            {
+                "use_random_port": False,
+                "listen_port": int(listen_port),
+            }
+        )
+
     def _attempt_login(self, username: str, password: str) -> bool:
         if self.dry_run:
             return True
