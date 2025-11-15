@@ -34,6 +34,7 @@ class EnvSetupTests(unittest.TestCase):
                 "Stockholm",
                 "n",  # skip hostnames
                 "n",  # skip port forwarding
+                "y",  # customize ports
                 "8081",
                 "9696",
                 "8989",
@@ -68,6 +69,38 @@ class EnvSetupTests(unittest.TestCase):
             self.assertEqual(entries["SERVER_REGIONS"], "Europe North")
             self.assertEqual(entries["SERVER_CITIES"], "Stockholm")
             self.assertEqual(entries["VPN_PORT_FORWARDING_ENABLED"], "n")
+
+    def test_default_ports_used_when_not_customizing(self):
+        console = Console(record=True)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt_values = [
+                "/data/media",
+                "2000",
+                "2000",
+                "999",
+                "10.0.0.0/24",
+                "UTC",
+                "admin",
+                "changeme",
+                "false",  # disable VPN
+                "n",  # keep default ports
+            ]
+            with patch("servarr_bootstrap.env_setup.typer.prompt", side_effect=prompt_values), patch(
+                "servarr_bootstrap.env_setup.detect_timezone", return_value="UTC"
+            ):
+                interactive_env_setup(root, console)
+
+            env_file = root / ".env"
+            entries = dict(line.split("=", 1) for line in env_file.read_text().strip().splitlines())
+            self.assertEqual(entries["QBIT_WEBUI"], "8080")
+            self.assertEqual(entries["PROWLARR_PORT"], "9696")
+            self.assertEqual(entries["SONARR_PORT"], "8989")
+            self.assertEqual(entries["RADARR_PORT"], "7878")
+            self.assertEqual(entries["BAZARR_PORT"], "6767")
+            self.assertEqual(entries["FLARESOLVERR_PORT"], "8191")
+            self.assertEqual(entries["CROSS_SEED_PORT"], "2468")
+            self.assertEqual(entries["HEALTH_PORT"], "3000")
 
     def test_skips_existing_values(self):
         console = Console(record=True)
@@ -139,6 +172,7 @@ class EnvSetupTests(unittest.TestCase):
                 "admin",
                 "changeme",
                 "false",
+                "y",  # customize ports
                 "8081",
                 "9700",
                 "8990",
@@ -179,6 +213,7 @@ class EnvSetupTests(unittest.TestCase):
                 "n",  # advanced wg
                 "n",  # skip filters
                 "n",  # skip port forwarding
+                "y",  # customize ports
                 "8081",
                 "9700",
                 "8990",
@@ -228,6 +263,7 @@ class EnvSetupTests(unittest.TestCase):
                 "se-sto-001",
                 "se-sto",  # server name
                 "n",  # skip port forwarding
+                "y",  # customize ports
                 "8081",
                 "9700",
                 "8990",
@@ -272,6 +308,7 @@ class EnvSetupTests(unittest.TestCase):
                 "n",  # no filters
                 "y",  # enable port forwarding
                 "gluetun",  # provider
+                "y",  # customize ports
                 "8081",
                 "9700",
                 "8990",
@@ -312,6 +349,7 @@ class EnvSetupTests(unittest.TestCase):
                 "n",  # no filters
                 "n",  # hostnames
                 "n",  # port forwarding
+                "y",  # customize ports
                 "8081",
                 "9700",
                 "8990",
@@ -354,6 +392,7 @@ class EnvSetupTests(unittest.TestCase):
                 "n",  # do not add region/city without country
                 "n",  # hostnames
                 "n",  # port forwarding
+                "y",  # customize ports
                 "8081",
                 "9700",
                 "8990",
@@ -401,6 +440,7 @@ class EnvSetupTests(unittest.TestCase):
                 "Stockholm",
                 "n",  # hostnames
                 "n",  # port forwarding
+                "y",  # customize ports
                 "8081",
                 "9700",
                 "8990",
@@ -456,7 +496,7 @@ class EnvSetupTests(unittest.TestCase):
                 )
                 + "\n"
             )
-            prompt_values = ["notaport", "8085"]
+            prompt_values = ["y", "notaport", "8085"]
             with patch("servarr_bootstrap.env_setup.typer.prompt", side_effect=prompt_values):
                 interactive_env_setup(root, console)
 

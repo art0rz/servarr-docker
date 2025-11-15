@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 import ipaddress
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 try:  # pragma: no cover - Windows compatibility
     import grp
@@ -164,6 +164,19 @@ def _validate_wg_implementation(value: str) -> str:
         raise ValueError(f"Implementation must be one of: {', '.join(sorted(allowed))}.")
     return normalized
 
+PORT_SECTION_TITLE = "Application Ports"
+PORT_PROMPTS: Iterable[str] = (
+    "QBIT_WEBUI",
+    "PROWLARR_PORT",
+    "SONARR_PORT",
+    "RADARR_PORT",
+    "BAZARR_PORT",
+    "FLARESOLVERR_PORT",
+    "CROSS_SEED_PORT",
+    "HEALTH_PORT",
+)
+
+
 PROMPT_SECTIONS: List[PromptSection] = [
     PromptSection(
         "Storage & Network",
@@ -276,7 +289,7 @@ PROMPT_SECTIONS: List[PromptSection] = [
         ],
     ),
     PromptSection(
-        "Application Ports",
+        PORT_SECTION_TITLE,
         "Expose the container UIs on your host.",
         [
             EnvPrompt("QBIT_WEBUI", "qBittorrent WebUI port", "8080", validator=_validate_port),
@@ -357,6 +370,7 @@ def interactive_env_setup(root_dir: Path, console: Console) -> None:
     new_entries: List[tuple[str, str]] = []
     collected = existing.copy()
     console.print("[cyan].env:[/] Missing configuration detected. We'll go step by step.")
+    custom_ports_choice: Optional[bool] = None
     for section in sections:
         section_has_prompt = False
         for prompt in section.prompts:
@@ -364,6 +378,23 @@ def interactive_env_setup(root_dir: Path, console: Console) -> None:
                 continue
             if not _should_prompt(prompt.key, collected):
                 continue
+            if (
+                section.title == PORT_SECTION_TITLE
+                and custom_ports_choice is None
+            ):
+                if not section_has_prompt:
+                    console.print()
+                    console.print(f"[cyan bold]{section.title}[/cyan bold]")
+                    if section.description:
+                        console.print(f"[bold]{section.description}[/bold]")
+                    section_has_prompt = True
+                custom_ports_choice = _prompt_customize_ports(console)
+                if not custom_ports_choice:
+                    _apply_default_ports(
+                        section.prompts, existing, collected, new_entries
+                    )
+                    console.print("[cyan]Ports:[/] Keeping default container ports.")
+                    break
             if not section_has_prompt:
                 console.print()
                 console.print(f"[cyan bold]{section.title}[/cyan bold]")
@@ -374,6 +405,10 @@ def interactive_env_setup(root_dir: Path, console: Console) -> None:
             if prompt.persist:
                 new_entries.append((prompt.key, value))
             collected[prompt.key] = value
+        else:
+            continue
+        # Section loop was broken (defaults applied); move to next section.
+        continue
 
     if new_entries:
         with env_path.open("a", encoding="utf-8") as env_file:
@@ -411,6 +446,42 @@ def _prompt_value(prompt: EnvPrompt, console: Console) -> str:
         except ValueError as exc:
             console.print(f"[red]{exc}[/red]")
             continue
+
+
+def _prompt_customize_ports(console: Console) -> bool:
+    """Ask whether the user wants to override default service ports."""
+
+    while True:
+        raw = typer.prompt(
+            "Customize service ports? (y/n)",
+            default="n",
+            show_default=True,
+        ).strip()
+        if not raw:
+            raw = "n"
+        try:
+            return _validate_yes_no(raw) == "y"
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+
+
+def _apply_default_ports(
+    prompts: Iterable[EnvPrompt],
+    existing: Dict[str, str],
+    collected: Dict[str, str],
+    new_entries: List[tuple[str, str]],
+) -> None:
+    """Populate default port values without prompting."""
+
+    for prompt in prompts:
+        if prompt.key not in PORT_PROMPTS:
+            continue
+        if prompt.key in existing or prompt.key in collected:
+            continue
+        default = prompt.default or ""
+        collected[prompt.key] = default
+        if prompt.persist:
+            new_entries.append((prompt.key, default))
 
 
 def _should_prompt(key: str, values: Dict[str, str]) -> bool:
