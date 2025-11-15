@@ -51,7 +51,7 @@ Host port forwarding is configurable via `.env`; the Vagrant VM also forwards ea
    ```
 
 3. **Follow the prompts**
-   - Storage path (`MEDIA_DIR`), PUID/PGID, timezone
+   - Storage path (`MEDIA_DIR`, defaults to `~/media`), PUID/PGID, timezone
    - VPN provider, credentials, toggle for WireGuard/OpenVPN fields
    - Docker group GID auto-detected for the health server
    - Ports, pf-sync, and pf health check
@@ -132,6 +132,18 @@ Use the built-in check command to rerun readiness diagnostics without touching c
 ```
 
 It hydrates the current `.env`, verifies Docker/Compose availability, ensures config directories exist, and probes Arr/qBittorrent/Bazarr/Prowlarr HTTP endpoints. Failures are summarized in the Rich table; details live in `logs/bootstrap-latest.log`.
+
+---
+
+## Unattended Quickstart
+
+Need a disposable test environment? Run:
+
+```bash
+./bootstrap.sh --quickstart --non-interactive
+```
+
+This pre-populates `.env` with the defaults (MEDIA_DIR=`~/media`, username/password `servarr`/`servarr`, VPN disabled, default ports) before running the bootstrap flow. You can override any value by defining it in `.env` ahead of time. Credentials are echoed at the end of the run for convenience.
 
 ---
 

@@ -18,7 +18,7 @@ from rich.table import Table
 
 from .cleaner import CleanError, CleanPlan, perform_clean
 from .config import ConfigError, RuntimeContext, RuntimeOptions, build_runtime_context
-from .env_setup import default_env_values, interactive_env_setup
+from .env_setup import default_env_values, interactive_env_setup, ensure_quickstart_env
 from .sanity import render_report, run_sanity_scan
 from .setup_tasks import SetupError, perform_setup
 from .tasks.integrations import IntegrationError, run_integration_tasks
@@ -123,10 +123,16 @@ def main(
     dry_run: bool = typer.Option(False, "--dry-run", help="Run without applying changes."),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Disable interactive prompts."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show debug logs in the terminal."),
+    quickstart: bool = typer.Option(False, "--quickstart", help="Apply default configuration values for unattended runs."),
 ) -> None:
     """Bootstrapper entrypoint; defaults to the run command when no subcommand is provided."""
     log_path = configure_logging(verbose)
-    options = RuntimeOptions(dry_run=dry_run, non_interactive=non_interactive, verbose=verbose)
+    options = RuntimeOptions(
+        dry_run=dry_run,
+        non_interactive=non_interactive,
+        verbose=verbose,
+        quickstart=quickstart,
+    )
     context = _store_context(ctx, options=options, log_path=log_path)
 
     LOGGER.info("Logs written to %s", log_path)
@@ -141,7 +147,11 @@ def _ensure_runtime_context(ctx: typer.Context, *, require_credentials: bool) ->
     """Build (or rebuild) the runtime context using current options."""
     context = ctx.ensure_object(dict)
     options: RuntimeOptions = context.get("options", RuntimeOptions())
-    if require_credentials and not options.non_interactive and not context.get("_env_configured"):
+    if options.quickstart and not context.get("_quickstart_applied"):
+        ensure_quickstart_env(ROOT_DIR, CONSOLE)
+        context["_env_configured"] = True
+        context["_quickstart_applied"] = True
+    elif require_credentials and not options.non_interactive and not context.get("_env_configured"):
         interactive_env_setup(ROOT_DIR, CONSOLE)
         context["_env_configured"] = True
     try:
@@ -164,6 +174,7 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Run without applying changes."),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Disable interactive prompts."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show debug logs in the terminal."),
+    quickstart: bool = typer.Option(False, "--quickstart", help="Apply default configuration values for unattended runs."),
 ) -> None:
     """Execute the bootstrap workflow (currently stubbed)."""
     context = ctx.ensure_object(dict)
@@ -172,6 +183,7 @@ def run(
         dry_run=stored_options.dry_run or dry_run,
         non_interactive=stored_options.non_interactive or non_interactive,
         verbose=stored_options.verbose or verbose,
+        quickstart=stored_options.quickstart or quickstart,
     )
     context["options"] = merged_options
     runtime = _ensure_runtime_context(ctx, require_credentials=True)
@@ -184,6 +196,7 @@ def check(
     dry_run: bool = typer.Option(False, "--dry-run", help="(Ignored) maintained for CLI parity."),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Disable interactive prompts."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show debug logs in the terminal."),
+    quickstart: bool = typer.Option(False, "--quickstart", help="Apply default configuration values before running the sanity check."),
 ) -> None:
     """Run the sanity scan without provisioning services."""
     context = ctx.ensure_object(dict)
@@ -192,6 +205,7 @@ def check(
         dry_run=stored_options.dry_run or dry_run,
         non_interactive=stored_options.non_interactive or non_interactive,
         verbose=stored_options.verbose or verbose,
+        quickstart=stored_options.quickstart or quickstart,
     )
     context["options"] = merged_options
     runtime = _ensure_runtime_context(ctx, require_credentials=False)
@@ -220,6 +234,7 @@ def clean(
         dry_run=stored_options.dry_run,
         non_interactive=stored_options.non_interactive,
         verbose=stored_options.verbose,
+        quickstart=stored_options.quickstart,
     )
     context["options"] = merged_options
     runtime = _ensure_runtime_context(ctx, require_credentials=False)
@@ -338,6 +353,8 @@ def _print_completion(runtime: RuntimeContext, log_path: Optional[str]) -> None:
             border_style="green",
         )
     )
+    if runtime.options.quickstart:
+        CONSOLE.print("[cyan]Quickstart credentials:[/] servarr / servarr")
 def _run_sanity_phase(runtime: RuntimeContext, log_path: Optional[str]) -> None:
     """Execute the sanity scan and render results, handling failures uniformly."""
     try:

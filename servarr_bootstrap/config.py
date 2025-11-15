@@ -22,6 +22,7 @@ class RuntimeOptions:
     dry_run: bool = False
     non_interactive: bool = False
     verbose: bool = False
+    quickstart: bool = False
 
 
 @dataclass(frozen=True)

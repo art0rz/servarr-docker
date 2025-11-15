@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from rich.console import Console
 
-from servarr_bootstrap.env_setup import interactive_env_setup
+from servarr_bootstrap.env_setup import interactive_env_setup, ensure_quickstart_env, MEDIA_DEFAULT_DIR
 
 
 class EnvSetupTests(unittest.TestCase):
@@ -507,3 +507,31 @@ class EnvSetupTests(unittest.TestCase):
                     key, value = line.split("=", 1)
                     entries[key] = value
             self.assertEqual(entries["QBIT_WEBUI"], "8085")
+
+    def test_quickstart_env_applies_defaults(self):
+        console = Console(record=True)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ensure_quickstart_env(root, console)
+            env_entries = {}
+            env_text = (root / ".env").read_text().splitlines()
+            for line in env_text:
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    env_entries[key] = value
+            self.assertEqual(env_entries["SERVARR_USERNAME"], "servarr")
+            self.assertEqual(env_entries["SERVARR_PASSWORD"], "servarr")
+            self.assertEqual(env_entries["USE_VPN"], "false")
+            self.assertEqual(env_entries["MEDIA_DIR"], MEDIA_DEFAULT_DIR)
+
+    def test_quickstart_does_not_override_existing_values(self):
+        console = Console(record=True)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env_path = root / ".env"
+            env_path.write_text("MEDIA_DIR=/data/custom\nSERVARR_USERNAME=custom\n")
+            ensure_quickstart_env(root, console)
+            entries = dict(line.split("=", 1) for line in env_path.read_text().splitlines() if "=" in line)
+            self.assertEqual(entries["MEDIA_DIR"], "/data/custom")
+            self.assertEqual(entries["SERVARR_USERNAME"], "custom")
+            self.assertEqual(entries["SERVARR_PASSWORD"], "servarr")

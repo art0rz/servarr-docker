@@ -26,6 +26,8 @@ except ImportError:  # pragma: no cover
 from dotenv import dotenv_values
 from rich.console import Console
 
+MEDIA_DEFAULT_DIR = str(Path.home() / "media")
+
 @dataclass(frozen=True)
 class EnvPrompt:
     key: str
@@ -182,7 +184,7 @@ PROMPT_SECTIONS: List[PromptSection] = [
         "Storage & Network",
         "Where media lives and how containers reach your LAN.",
         [
-            EnvPrompt("MEDIA_DIR", "Media directory for downloads and library", "/mnt/media", validator=_validate_non_empty),
+            EnvPrompt("MEDIA_DIR", "Media directory for downloads and library", MEDIA_DEFAULT_DIR, validator=_validate_non_empty),
             EnvPrompt("PUID", "Container user ID (PUID)", _default_uid(), validator=_validate_positive_int),
             EnvPrompt("PGID", "Container group ID (PGID)", _default_gid(), validator=_validate_positive_int),
             EnvPrompt("DOCKER_GID", "Docker group ID (for health server)", _default_docker_gid(), validator=_validate_positive_int),
@@ -575,6 +577,44 @@ def default_env_values() -> Dict[str, str]:
         for prompt in section.prompts:
             defaults[prompt.key] = prompt.default or ""
     return defaults
+
+
+def ensure_quickstart_env(root_dir: Path, console: Console) -> None:
+    """Populate .env with quickstart defaults if values are missing."""
+
+    env_path = root_dir / ".env"
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    env_path.touch(exist_ok=True)
+
+    existing = {k: v for k, v in dotenv_values(env_path).items() if v is not None}
+    defaults = default_env_values()
+    quickstart_overrides = {
+        "MEDIA_DIR": MEDIA_DEFAULT_DIR,
+        "SERVARR_USERNAME": defaults.get("SERVARR_USERNAME") or "servarr",
+        "SERVARR_PASSWORD": "servarr",
+        "USE_VPN": "false",
+    }
+    defaults.update(quickstart_overrides)
+
+    new_entries: List[tuple[str, str]] = []
+    for key, value in defaults.items():
+        if not value:
+            continue
+        current = existing.get(key)
+        if current:
+            continue
+        new_entries.append((key, value))
+
+    if not new_entries:
+        console.print("[cyan]Quickstart:[/] Existing .env values found; no defaults applied.")
+        return
+
+    with env_path.open("a", encoding="utf-8") as env_file:
+        if env_path.stat().st_size > 0:
+            env_file.write("\n")
+        for key, value in new_entries:
+            env_file.write(f"{key}={value}\n")
+    console.print(f"[cyan]Quickstart:[/] Applied {len(new_entries)} default value(s) to {env_path}.")
 
 
 def _flag_truthy(value: Optional[str]) -> bool:

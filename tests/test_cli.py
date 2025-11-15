@@ -34,6 +34,25 @@ class CliCheckCommandTests(unittest.TestCase):
         run_scan.assert_called_once_with(cli.ROOT_DIR, self.runtime)
         render_report.assert_called_once()
 
+    def test_run_command_with_quickstart_applies_defaults(self) -> None:
+        with patch("servarr_bootstrap.cli.configure_logging", return_value=Path("dummy.log")), patch(
+            "servarr_bootstrap.cli.ensure_quickstart_env"
+        ) as ensure_qs, patch(
+            "servarr_bootstrap.cli.build_runtime_context", return_value=self.runtime
+        ), patch("servarr_bootstrap.cli.interactive_env_setup"), patch(
+            "servarr_bootstrap.cli.perform_setup"
+        ), patch(
+            "servarr_bootstrap.cli.run_integration_tasks"
+        ), patch(
+            "servarr_bootstrap.cli.run_sanity_scan", return_value=MagicMock()
+        ), patch(
+            "servarr_bootstrap.cli.render_report"
+        ):
+            result = self.runner.invoke(cli.APP, ["run", "--quickstart"])
+
+        self.assertEqual(result.exit_code, 0)
+        ensure_qs.assert_called()
+
 
 if __name__ == "__main__":
     unittest.main()
