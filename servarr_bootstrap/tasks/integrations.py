@@ -126,14 +126,21 @@ class IntegrationRunner:
         container_name = self.env.get("QBIT_CONTAINER_NAME", "qbittorrent")
         client = QbitClient(base_url, self._silent_console, self.runtime.options.dry_run, container_name=container_name)
         media_dir_value = self.env.get("MEDIA_DIR")
-        try:
-            configured = client.ensure_credentials(
+        def apply_credentials() -> bool:
+            return client.ensure_credentials(
                 desired_username=self.runtime.credentials.username,
                 desired_password=self.runtime.credentials.password,
                 lan_subnet=lan_subnet,
             )
+
+        try:
+            configured = self._retry("qBittorrent credentials", apply_credentials, exceptions=(QbitClientError,))
             if configured and media_dir_value:
-                client.ensure_storage_layout(Path(media_dir_value))
+                self._retry(
+                    "qBittorrent storage layout",
+                    lambda: client.ensure_storage_layout(Path(media_dir_value)),
+                    exceptions=(QbitClientError,),
+                )
             pf_status, pf_detail = ("skipped", "")
             if configured:
                 pf_status, pf_detail = self._sync_forwarded_port(client)
@@ -177,17 +184,24 @@ class IntegrationRunner:
                 self.runtime.options.dry_run,
             )
 
+            qb_config = QbittorrentConfig(
+                host=qbit_host,
+                port=qbit_port,
+                username=self.runtime.credentials.username or "",
+                password=self.runtime.credentials.password or "",
+                category=category,
+            )
             try:
-                arr_client.ensure_qbittorrent_download_client(
-                    QbittorrentConfig(
-                        host=qbit_host,
-                        port=qbit_port,
-                        username=self.runtime.credentials.username or "",
-                        password=self.runtime.credentials.password or "",
-                        category=category,
-                    )
+                self._retry(
+                    f"{target.name} download client",
+                    lambda: arr_client.ensure_qbittorrent_download_client(qb_config),
+                    exceptions=(ArrClientError,),
                 )
-                arr_client.ensure_root_folder(media_root / target.media_subdir)
+                self._retry(
+                    f"{target.name} root folder",
+                    lambda: arr_client.ensure_root_folder(media_root / target.media_subdir),
+                    exceptions=(ArrClientError,),
+                )
             except ArrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
         return "done", "Download clients and root folders updated"
@@ -221,7 +235,11 @@ class IntegrationRunner:
                 "apiKey": api_key,
             }
             try:
-                client.ensure_application(target.prowlarr_implementation(), fields, name=target.name)
+                self._retry(
+                    f"Prowlarr {target.name} application",
+                    lambda: client.ensure_application(target.prowlarr_implementation(), fields, name=target.name),
+                    exceptions=(ProwlarrClientError,),
+                )
             except ProwlarrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
 
@@ -273,8 +291,16 @@ class IntegrationRunner:
             creds = (self.runtime.credentials.username, self.runtime.credentials.password)
 
         try:
-            client.ensure_arr_integrations(sonarr_cfg, radarr_cfg, credentials=creds)
-            client.ensure_language_preferences()
+            self._retry(
+                "Bazarr integrations",
+                lambda: client.ensure_arr_integrations(sonarr_cfg, radarr_cfg, credentials=creds),
+                exceptions=(BazarrClientError,),
+            )
+            self._retry(
+                "Bazarr language prefs",
+                lambda: client.ensure_language_preferences(),
+                exceptions=(BazarrClientError,),
+            )
         except BazarrClientError as exc:
             raise IntegrationError(str(exc)) from exc
         return "done", "Bazarr linked to Sonarr/Radarr"
@@ -300,13 +326,21 @@ class IntegrationRunner:
                 self.runtime.options.dry_run,
             )
             try:
-                arr_client.ensure_ui_credentials(username, password)
+                self._retry(
+                    f"{target.name} UI credentials",
+                    lambda: arr_client.ensure_ui_credentials(username, password),
+                    exceptions=(ArrClientError,),
+                )
             except ArrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
 
         if hasattr(self, "prowlarr_client"):
             try:
-                self.prowlarr_client.ensure_ui_credentials(username, password)
+                self._retry(
+                    "Prowlarr UI credentials",
+                    lambda: self.prowlarr_client.ensure_ui_credentials(username, password),
+                    exceptions=(ProwlarrClientError,),
+                )
             except ProwlarrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
         return "done", "UI credentials applied"
@@ -318,8 +352,16 @@ class IntegrationRunner:
         if not sonarr_key or not radarr_key:
             raise IntegrationError("Arr API keys not available for Recyclarr configuration")
         try:
-            manager.ensure_config(sonarr_key, radarr_key)
-            manager.run_sync()
+            self._retry(
+                "Recyclarr config",
+                lambda: manager.ensure_config(sonarr_key, radarr_key),
+                exceptions=(RecyclarrError,),
+            )
+            self._retry(
+                "Recyclarr sync",
+                lambda: manager.run_sync(),
+                exceptions=(RecyclarrError,),
+            )
         except RecyclarrError as exc:
             raise IntegrationError(str(exc)) from exc
         return "done", "Recyclarr config synced"
@@ -357,13 +399,16 @@ class IntegrationRunner:
         configurator = CrossSeedConfigurator(
             self.root_dir, self._silent_console, self.runtime.options.dry_run, link_dir=link_dir
         )
-        try:
+        def apply_cross_seed():
             configurator.ensure_config(
                 torznab_urls=torznab_urls,
                 sonarr_urls=[f"http://sonarr:8989?apikey={self.arr_api_keys.get('sonarr', '')}"],
                 radarr_urls=[f"http://radarr:7878?apikey={self.arr_api_keys.get('radarr', '')}"],
                 torrent_clients=torrent_clients,
             )
+
+        try:
+            self._retry("Cross-Seed config", apply_cross_seed, exceptions=(CrossSeedError,))
         except CrossSeedError as exc:
             raise IntegrationError(str(exc)) from exc
         return "done", f"Cross-Seed config updated{client_note}"
@@ -431,3 +476,17 @@ class IntegrationRunner:
             return compose_flag.strip().lower() not in {"off", "false", "0", "no"}
         provider = self.env.get("PORT_FORWARDING_PROVIDER", "")
         return bool(provider.strip())
+
+    def _retry(self, label: str, func, *, attempts: int = 5, delay: float = 3.0, exceptions: tuple = (Exception,)) -> any:
+        last_exc = None
+        for attempt in range(1, attempts + 1):
+            try:
+                return func()
+            except exceptions as exc:
+                last_exc = exc
+                if attempt == attempts or self.runtime.options.dry_run:
+                    break
+                LOGGER.warning("%s failed (attempt %s/%s): %s", label, attempt, attempts, exc)
+                time.sleep(delay)
+        if last_exc:
+            raise last_exc
