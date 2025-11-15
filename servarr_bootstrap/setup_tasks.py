@@ -330,28 +330,34 @@ def _start_services(
     profile = "vpn" if use_vpn else "no-vpn"
     logger_prefix = "VPN" if use_vpn else "no-VPN"
 
-    def run(cmd: list[str], env_profile: Optional[str] = None) -> None:
-        env = os.environ.copy()
-        if env_profile:
-            env["COMPOSE_PROFILES"] = env_profile
-        run_command(cmd, cwd=root_dir, dry_run=dry_run, runner=command_runner, env=env)
+    def run(cmd: list[str]) -> None:
+        run_command(cmd, cwd=root_dir, dry_run=dry_run, runner=command_runner, env=None)
 
     start_steps = [
-        ProgressStep("down_vpn", "Stop VPN profile"),
-        ProgressStep("down_no_vpn", "Stop no-VPN profile"),
-        ProgressStep("down_orphans", "Remove orphans"),
+        ProgressStep("stop_all", "Stop existing containers"),
         ProgressStep("build_health", "Build health service"),
-        ProgressStep("pull_profile", f"Pull ({profile})"),
-        ProgressStep("up_profile", f"Start ({profile})"),
+        ProgressStep("pull_profile", f"Pull images ({profile})"),
+        ProgressStep("up_profile", f"Start stack ({profile})"),
     ]
-
+    compose_base = ["docker", "compose"]
     commands = [
-        ("down_vpn", ["docker", "compose", "down"], "Stopping VPN profile", "vpn"),
-        ("down_no_vpn", ["docker", "compose", "down"], "Stopping no-VPN profile", "no-vpn"),
-        ("down_orphans", ["docker", "compose", "down", "--remove-orphans"], "Removing orphan containers", None),
-        ("build_health", ["docker", "compose", "build", "health-server"], "Building health service", None),
-        ("pull_profile", ["docker", "compose", "pull"], f"Pulling images for {profile}", profile),
-        ("up_profile", ["docker", "compose", "up", "-d"], f"Starting services ({profile})", profile),
+        (
+            "stop_all",
+            compose_base
+            + ["--profile", "vpn", "--profile", "no-vpn", "down", "--remove-orphans"],
+            "Stopping containers (vpn + no-vpn)",
+        ),
+        ("build_health", compose_base + ["build", "health-server"], "Building health service"),
+        (
+            "pull_profile",
+            compose_base + ["--profile", profile, "pull"],
+            f"Pulling images for {profile}",
+        ),
+        (
+            "up_profile",
+            compose_base + ["--profile", profile, "up", "-d"],
+            f"Starting services ({profile})",
+        ),
     ]
 
     if dry_run:
@@ -359,10 +365,10 @@ def _start_services(
         return
 
     with ProgressTracker("Docker Progress", start_steps, console=console) as tracker:
-        for step_key, cmd, detail, env_profile in commands:
+        for step_key, cmd, detail in commands:
             tracker.update(step_key, status="running", details=detail)
             try:
-                run(cmd, env_profile=env_profile)
+                run(cmd)
             except Exception as exc:
                 tracker.update(step_key, status="failed", details=str(exc))
                 raise SetupError(f"Docker command failed ({' '.join(cmd)}): {exc}") from exc

@@ -177,7 +177,7 @@ def run_command(
     env: Optional[Dict[str, str]] = None,
 ) -> None:
     rendered = " ".join(cmd)
-    LOGGER.info("Running command: %s", rendered)
+    LOGGER.debug("Running command: %s", rendered)
     if dry_run:
         LOGGER.info("[dry-run] Skipping command execution")
         return
