@@ -1,4 +1,12 @@
-import { cmd, dockerInspect, dockerEnvMap, getEgressIP } from './docker.js';
+import {
+  cmd,
+  dockerInspect,
+  dockerEnvMap,
+  getEgressIP,
+  getFileMtime,
+  getDiskUsage as dockerDiskUsage,
+  getImageCreationDate
+} from './docker.js';
 import { loadCrossSeedStats } from './config.js';
 
 function buildHeaderArgs(headers = []) {
@@ -441,4 +449,63 @@ export async function checkProwlarrIndexers(url, apiKey) {
   } catch {
     return { name, ok: false, detail: "failed to parse response" };
   }
+}
+
+export async function checkPfSyncHeartbeat(container = "gluetun") {
+  const name = "pf-sync heartbeat";
+  const mtime = await getFileMtime(container, "/tmp/gluetun/forwarded_port");
+  if (!mtime) {
+    return { name, ok: false, detail: "forwarded_port file missing" };
+  }
+  const ageSec = Math.round((Date.now() - mtime) / 1000);
+  const ok = ageSec < 180;
+  return {
+    name,
+    ok,
+    detail: `age=${ageSec}s`
+  };
+}
+
+export async function checkDiskUsage(container = "qbittorrent", path = process.env.MEDIA_DIR || "/config") {
+  const name = "Disk usage";
+  const usage = await dockerDiskUsage(container, path);
+  if (!usage || usage.usedPercent === null) {
+    return { name, ok: false, detail: "unable to read disk usage" };
+  }
+  const ok = usage.usedPercent < 90;
+  return {
+    name,
+    ok,
+    detail: `${usage.usedPercent}% used (${usage.available} free)`
+  };
+}
+
+export async function checkImageAge(containers = [
+  "qbittorrent",
+  "sonarr",
+  "radarr",
+  "prowlarr",
+  "bazarr",
+  "gluetun",
+  "cross-seed",
+  "recyclarr"
+]) {
+  const name = "Container image age";
+  const ages = await Promise.all(
+    containers.map(async (container) => {
+      const created = await getImageCreationDate(container).catch(() => null);
+      if (!created) return null;
+      const days = Math.round((Date.now() - created) / (1000 * 60 * 60 * 24));
+      return `${container}: ${days}d`;
+    })
+  );
+  const detail = ages.filter(Boolean).join(" | ");
+  if (!detail) {
+    return { name, ok: false, detail: "unable to inspect images" };
+  }
+  return {
+    name,
+    ok: true,
+    detail
+  };
 }

@@ -78,3 +78,34 @@ export async function getEgressIP(containerName) {
   );
   return result.ok ? result.out.split(/\s+/)[0] : "";
 }
+
+export async function getFileMtime(containerName, filePath) {
+  const result = await cmd(`docker exec ${containerName} sh -c 'stat -c %Y ${filePath} 2>/dev/null'`);
+  if (!result.ok) return null;
+  const epoch = parseInt(result.out.trim(), 10);
+  return Number.isFinite(epoch) ? epoch * 1000 : null;
+}
+
+export async function getDiskUsage(containerName, path) {
+  const result = await cmd(`docker exec ${containerName} sh -c "df -P ${path} 2>/dev/null | tail -1"`);
+  if (!result.ok || !result.out.trim()) return null;
+  const parts = result.out.trim().split(/\s+/);
+  if (parts.length < 6) return null;
+  const percent = parseInt(parts[4].replace("%", ""), 10);
+  return {
+    filesystem: parts[0],
+    usedPercent: Number.isFinite(percent) ? percent : null,
+    used: parts[2],
+    available: parts[3],
+    mount: parts[5]
+  };
+}
+
+export async function getImageCreationDate(containerName) {
+  const imageId = await cmd(`docker inspect -f '{{.Image}}' ${containerName}`);
+  if (!imageId.ok || !imageId.out.trim()) return null;
+  const created = await cmd(`docker inspect -f '{{.Created}}' ${imageId.out.trim()}`);
+  if (!created.ok || !created.out.trim()) return null;
+  const timestamp = Date.parse(created.out.trim());
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
