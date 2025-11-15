@@ -22,6 +22,7 @@ from ..services.cross_seed import CrossSeedConfigurator, CrossSeedError
 from ..services.prowlarr import ProwlarrClient, ProwlarrClientError
 from ..services.qbittorrent import QbitClient, QbitClientError
 from ..services.recyclarr import RecyclarrManager, RecyclarrError
+from ..utils.progress import ProgressStep, ProgressTracker
 
 LOGGER = logging.getLogger("servarr.bootstrap.integrations")
 
@@ -73,15 +74,39 @@ ARR_TARGETS: List[ArrTarget] = [
 ]
 
 
+INTEGRATION_STEPS = [
+    ("qbittorrent", "qBittorrent"),
+    ("arr", "Sonarr/Radarr"),
+    ("prowlarr", "Prowlarr"),
+    ("bazarr", "Bazarr"),
+    ("recyclarr", "Recyclarr"),
+    ("cross_seed", "Cross-Seed"),
+    ("auth", "UI credentials"),
+]
+
+
 def run_integration_tasks(root_dir: Path, runtime: RuntimeContext, console: Console) -> None:
-        runner = IntegrationRunner(root_dir, runtime, console)
-        runner.configure_qbittorrent()
-        runner.configure_arr_clients()
-        runner.configure_prowlarr_applications()
-        runner.configure_bazarr()
-        runner.configure_recyclarr()
-        runner.configure_cross_seed()
-        runner.configure_service_auth()
+    runner = IntegrationRunner(root_dir, runtime, console)
+    steps = [ProgressStep(key, label, "Waiting") for key, label in INTEGRATION_STEPS]
+    with ProgressTracker("Integrations", steps, console=console) as tracker:
+        def run_step(key: str, label: str, func) -> None:
+            tracker.update(key, status="running", details=f"Configuring {label}")
+            try:
+                status, detail = func()
+            except IntegrationError as exc:
+                tracker.update(key, status="failed", details=str(exc))
+                raise
+            final_status = status if status in {"done", "skipped"} else "done"
+            detail_text = detail or ("Skipped" if final_status == "skipped" else "Completed")
+            tracker.update(key, status=final_status, details=detail_text)
+
+        run_step("qbittorrent", "qBittorrent", runner.configure_qbittorrent)
+        run_step("arr", "Sonarr/Radarr", runner.configure_arr_clients)
+        run_step("prowlarr", "Prowlarr", runner.configure_prowlarr_applications)
+        run_step("bazarr", "Bazarr", runner.configure_bazarr)
+        run_step("recyclarr", "Recyclarr", runner.configure_recyclarr)
+        run_step("cross_seed", "Cross-Seed", runner.configure_cross_seed)
+        run_step("auth", "UI credentials", runner.configure_service_auth)
 
 
 class IntegrationRunner:
@@ -93,8 +118,7 @@ class IntegrationRunner:
         self.arr_api_keys: Dict[str, str] = {}
         self._silent_console = SilentConsole()
 
-    def configure_qbittorrent(self) -> None:
-        self._log("Configuring qBittorrent (credentials + storage layout)")
+    def configure_qbittorrent(self) -> tuple[str, str]:
         base_url = f"http://127.0.0.1:{self._int_env('QBIT_WEBUI', 8080)}"
         lan_subnet = self.env.get("LAN_SUBNET")
         container_name = self.env.get("QBIT_CONTAINER_NAME", "qbittorrent")
@@ -109,13 +133,14 @@ class IntegrationRunner:
             if configured and media_dir_value:
                 client.ensure_storage_layout(Path(media_dir_value))
         except QbitClientError as exc:
-            self.console.print(f"[yellow]qBittorrent configuration skipped:[/] {exc}")
             LOGGER.warning("qBittorrent configuration skipped: %s", exc)
-            return
-        self._log("qBittorrent configured", style="green")
+            return "skipped", f"Skipped: {exc}"
+        detail = "WebUI credentials synchronized"
+        if configured and media_dir_value:
+            detail = "Credentials + storage layout updated"
+        return "done", detail
 
-    def configure_arr_clients(self) -> None:
-        self._log("Configuring Sonarr/Radarr download clients & root folders")
+    def configure_arr_clients(self) -> tuple[str, str]:
         use_vpn = self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"}
         qbit_host = "gluetun" if use_vpn else "qbittorrent"
         qbit_port = self._int_env("QBIT_WEBUI", 8080)
@@ -152,10 +177,9 @@ class IntegrationRunner:
                 arr_client.ensure_root_folder(media_root / target.media_subdir)
             except ArrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
-        self._log("Arr services synchronized", style="green")
+        return "done", "Download clients and root folders updated"
 
-    def configure_prowlarr_applications(self) -> None:
-        self._log("Configuring Prowlarr applications/proxy")
+    def configure_prowlarr_applications(self) -> tuple[str, str]:
         try:
             prowlarr_key = read_prowlarr_api_key(self.root_dir)
         except ApiKeyError as exc:
@@ -194,15 +218,15 @@ class IntegrationRunner:
         if not flaresolverr_url:
             port = self._int_env("FLARESOLVERR_PORT", 8191)
             flaresolverr_url = f"http://flaresolverr:{port}/"
+        flaresolverr_note = ""
         try:
             client.ensure_flaresolverr_proxy(flaresolverr_url)
         except ProwlarrClientError as exc:
-            self.console.print(f"[yellow]Prowlarr proxy skipped:[/] {exc}")
             LOGGER.warning("Prowlarr proxy configuration skipped: %s", exc)
-        self._log("Prowlarr applications configured", style="green")
+            flaresolverr_note = f" (FlareSolverr proxy skipped: {exc})"
+        return "done", f"Applications synchronized{flaresolverr_note}"
 
-    def configure_bazarr(self) -> None:
-        self._log("Configuring Bazarr integrations/language defaults")
+    def configure_bazarr(self) -> tuple[str, str]:
         try:
             bazarr_key = read_bazarr_api_key(self.root_dir)
         except ApiKeyError as exc:
@@ -238,15 +262,15 @@ class IntegrationRunner:
         try:
             client.ensure_arr_integrations(sonarr_cfg, radarr_cfg, credentials=creds)
             client.ensure_language_preferences()
-            self._log("Bazarr configured", style="green")
         except BazarrClientError as exc:
             raise IntegrationError(str(exc)) from exc
+        return "done", "Bazarr linked to Sonarr/Radarr"
 
-    def configure_service_auth(self) -> None:
+    def configure_service_auth(self) -> tuple[str, str]:
         username = self.runtime.credentials.username
         password = self.runtime.credentials.password
         if not username or not password:
-            return
+            return "skipped", "Credentials not provided"
 
         for target in ARR_TARGETS:
             try:
@@ -259,7 +283,7 @@ class IntegrationRunner:
                 target.name,
                 f"http://127.0.0.1:{arr_port}",
                 api_key,
-                self.console,
+                self._silent_console,
                 self.runtime.options.dry_run,
             )
             try:
@@ -272,9 +296,10 @@ class IntegrationRunner:
                 self.prowlarr_client.ensure_ui_credentials(username, password)
             except ProwlarrClientError as exc:
                 raise IntegrationError(str(exc)) from exc
+        return "done", "UI credentials applied"
 
-    def configure_recyclarr(self) -> None:
-        manager = RecyclarrManager(self.root_dir, self.console, self.runtime.options.dry_run)
+    def configure_recyclarr(self) -> tuple[str, str]:
+        manager = RecyclarrManager(self.root_dir, self._silent_console, self.runtime.options.dry_run)
         sonarr_key = self.arr_api_keys.get("sonarr")
         radarr_key = self.arr_api_keys.get("radarr")
         if not sonarr_key or not radarr_key:
@@ -284,9 +309,9 @@ class IntegrationRunner:
             manager.run_sync()
         except RecyclarrError as exc:
             raise IntegrationError(str(exc)) from exc
+        return "done", "Recyclarr config synced"
 
-    def configure_cross_seed(self) -> None:
-        self._log("Configuring Cross-Seed")
+    def configure_cross_seed(self) -> tuple[str, str]:
         username = self.runtime.credentials.username
         password = self.runtime.credentials.password
         torznab_urls = []
@@ -303,6 +328,7 @@ class IntegrationRunner:
 
         torrent_clients = []
         qbit_host = "gluetun" if self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"} else "qbittorrent"
+        client_note = ""
         if username and password:
             from urllib.parse import quote
 
@@ -311,7 +337,7 @@ class IntegrationRunner:
             )
             torrent_clients.append(f"qbittorrent:{encoded}")
         else:
-            self.console.print("[yellow]Cross-Seed:[/] Skipping torrent client config (no credentials)")
+            client_note = " (torrent client skipped; no credentials)"
 
         media_dir = Path(self.env.get("MEDIA_DIR", "/mnt/media"))
         link_dir = media_dir / "downloads" / "cross-seeds"
@@ -327,7 +353,7 @@ class IntegrationRunner:
             )
         except CrossSeedError as exc:
             raise IntegrationError(str(exc)) from exc
-        self._log("Cross-Seed updated", style="green")
+        return "done", f"Cross-Seed config updated{client_note}"
 
     def _int_env(self, key: str, default: int) -> int:
         value = self.env.get(key)
@@ -338,6 +364,3 @@ class IntegrationRunner:
         except ValueError:
             self.console.print(f"[yellow]Invalid integer for {key}: {value}. Using default {default}[/yellow]")
             return default
-
-    def _log(self, message: str, style: str = "cyan") -> None:
-        self.console.print(f"[{style}]Integrations:[/] {message}")
