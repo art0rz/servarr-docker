@@ -15,13 +15,15 @@ Vagrant.configure("2") do |config|
 
   # Share the repo into the VM. rsync keeps host performance high and avoids Docker bind mount issues.
   config.vm.synced_folder ".", "/home/vagrant/servarr", type: "rsync",
-                         rsync__exclude: [".git/", "config/", "logs/"],
+                         rsync__exclude: [".git/", "config/", "logs/", ".venv/"],
                          owner: "vagrant", group: "vagrant"
 
   config.vm.provider "virtualbox" do |vb|
     vb.memory = 4096
     vb.cpus = 2
   end
+
+  repo_dir = "/home/vagrant/servarr"
 
   config.vm.provision "shell", privileged: false, inline: <<-SHELL
     set -euo pipefail
@@ -31,23 +33,34 @@ Vagrant.configure("2") do |config|
     sudo apt-get install -y \
       ca-certificates \
       curl \
+      git \
+      gnupg \
+      jq \
+      lsb-release \
       python3 \
       python3-venv \
       python3-pip \
-      git \
-      jq \
+      rsync \
       unzip
 
     # Install Docker Engine + compose plugin if missing.
     if ! command -v docker >/dev/null 2>&1; then
       sudo install -m 0755 -d /etc/apt/keyrings
       curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --yes --dearmor -o /etc/apt/keyrings/docker.gpg
+      sudo chmod a+r /etc/apt/keyrings/docker.gpg
       echo \
         "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
         $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
       sudo apt-get update -y
       sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    fi
+    # Ensure docker is ready even if it was preinstalled.
+    if command -v docker >/dev/null 2>&1; then
+      sudo systemctl enable --now docker
       sudo usermod -aG docker vagrant
+    else
+      echo "Docker failed to install inside the VM" >&2
+      exit 1
     fi
 
     # Install Vagrant helper dependencies
@@ -60,6 +73,29 @@ Vagrant.configure("2") do |config|
     # Ensure git safe directory so local edits are allowed inside VM
     git config --global --add safe.directory /home/vagrant/servarr
 
+    if [ -f /vagrant/.vagrant/servarr-venv.tar.gz ]; then
+      echo "Restoring cached virtualenv..."
+      tar -xf /vagrant/.vagrant/servarr-venv.tar.gz -C /home/vagrant/servarr
+      sudo chown -R vagrant:vagrant /home/vagrant/servarr/.venv
+    fi
+
     echo "Bootstrap VM ready. Run 'vagrant ssh' to enter."
   SHELL
+
+  helper_commands = {
+    "bootstrap:run" => "./bootstrap.sh",
+    "bootstrap:dry-run" => "./bootstrap.sh --dry-run --non-interactive",
+    "bootstrap:clean" => "./bootstrap.sh clean --yes --purge-logs --purge-venv",
+    "stack:ps" => "docker compose ps"
+  }
+
+  helper_commands.each do |command_name, script|
+    config.vm.provision "shell", name: command_name, run: "never", privileged: false do |s|
+      s.inline = <<-SHELL
+        set -euo pipefail
+        cd #{repo_dir}
+        #{script}
+      SHELL
+    end
+  end
 end
