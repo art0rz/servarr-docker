@@ -1,203 +1,167 @@
-# Servarr Media Stack
+# Servarr Bootstrap
 
-A complete Docker Compose setup for automated media management with VPN protection, port forwarding, and health monitoring.
+Automated Docker Compose stack for qBittorrent, the Arr suite, Gluetun VPN, pf-sync port forwarding, Cross-Seed, and a health dashboard. The `./bootstrap.sh` script provisions everything with sensible defaults, handles port forwarding, and exposes a Rich CLI with progress tables.
 
-## Features
+---
 
-- **VPN Protection**: All torrent traffic routed through Gluetun VPN gateway (supports all major VPN providers)
-- **Automatic Port Forwarding**: Syncs VPN forwarded port to qBittorrent
-- **Media Management**: Sonarr, Radarr, Prowlarr, Bazarr for automated downloads
-- **Cross-Seeding**: Automatically finds and adds cross-seeds from your existing torrents
-- **TRaSH Guides Integration**: Recyclarr syncs optimal quality profiles and custom formats
-- **Captcha Solving**: FlareSolverr for indexer sites
-- **Health Monitoring**: Real-time dashboard showing service status, VPN health, and egress IPs
-- **Auto-Updates**: Watchtower keeps containers up to date
+## Highlights
 
-## Stack Components
+- **Opinionated automation** – Single `./bootstrap.sh` run handles config prompts, directory setup, Docker orchestration, integrations, and a final sanity scan.
+- **VPN-aware torrenting** – qBittorrent lives behind Gluetun; pf-sync reads Gluetun’s forwarded port and updates qBittorrent automatically.
+- **Arr ecosystem** – Sonarr, Radarr, Prowlarr, Bazarr, Recyclarr, and Cross-Seed are wired together out of the box.
+- **Health monitoring** – Health server shows container status, VPN info, and forwarded-port parity via a web dashboard.
+- **Developer-friendly** – Rich progress display, Vagrant dev environment, auto-detected Docker GID, and an idempotent setup flow.
 
-| Service | Description | Port |
-|---------|-------------|------|
-| **Gluetun** | VPN client (any provider) | 8080 (qBittorrent WebUI) |
-| **qBittorrent** | Torrent client (via VPN) | 8080 |
-| **Sonarr** | TV show management | 8989 |
-| **Radarr** | Movie management | 7878 |
-| **Prowlarr** | Indexer manager | 9696 |
-| **Bazarr** | Subtitle management | 6767 |
-| **Cross-Seed** | Automatic cross-seeding | 2468 |
-| **Recyclarr** | TRaSH guides sync | - |
-| **FlareSolverr** | Cloudflare bypass | 8191 |
-| **Health Server** | Monitoring dashboard | 3000 |
-| **Watchtower** | Auto-updates containers | - |
+---
 
-## Quick Start
+## Service Map
 
-### 1. Prerequisites
+| Service             | Purpose                              | Default Port(s) |
+|---------------------|--------------------------------------|-----------------|
+| Gluetun             | VPN gateway                          | 8080 (qBit UI)  |
+| qBittorrent (VPN)   | Torrent client (LAN via Gluetun)     | 8080            |
+| Sonarr              | Series automation                    | 8989            |
+| Radarr              | Movie automation                     | 7878            |
+| Prowlarr            | Indexer aggregator                   | 9696            |
+| Bazarr              | Subtitle automation                  | 6767            |
+| Cross-Seed          | Torrent cross-seeding                | 2468            |
+| Recyclarr           | TRaSH guides sync                    | -               |
+| FlareSolverr        | Cloudflare/DDoS bypass               | 8191            |
+| Health Server       | Dashboard + readiness probes         | 3000            |
+| Watchtower          | Container updates                    | -               |
+| pf-sync             | Gluetun forwarded-port synchronizer  | (internal)      |
 
-- Docker and Docker Compose installed
-- VPN credentials for your chosen provider (optional - setup works without VPN too)
-- Sufficient storage mounted at `/mnt/media` (or configure `MEDIA_DIR`)
+Host port forwarding is configurable via `.env`; the Vagrant VM also forwards each service to high host ports (see `Vagrantfile`).
 
-### 2. Setup
+---
 
-**Option A: Interactive Setup (Recommended)**
+## Quick Start (Native)
 
-```bash
-# Run bootstrap script - it will guide you through configuration
-chmod +x bootstrap.sh
-./bootstrap.sh
-```
+1. **Install dependencies**
+   - Docker (with Compose plugin)
+   - Git
+   - Optional: `python3-venv` if you plan to run tests locally
 
-The script will:
-1. Ask for your configuration (timezone, VPN provider & credentials, ports, etc.)
-2. Auto-detect Docker GID
-3. Create `.env` file
-4. Set up directories
-5. Start all services
-
-**Option B: Manual Setup**
-
-```bash
-# Copy example environment file
-cp .env.example .env
-
-# Edit .env with your configuration
-nano .env
-
-# Run bootstrap
-chmod +x bootstrap.sh
-./bootstrap.sh
-```
-
-**Required Configuration (if using VPN):**
-- `VPN_SERVICE_PROVIDER`: Your VPN provider (e.g., protonvpn, nordvpn, mullvad, etc.)
-- `VPN_TYPE`: VPN protocol type (e.g., wireguard, openvpn)
-- Provider-specific credentials (varies by provider - see Gluetun documentation)
-
-**Optional Configuration (has sensible defaults):**
-- `DOCKER_GID`: Docker group GID (auto-detected)
-- `MEDIA_DIR`: Media storage location (default: /mnt/media)
-- `TZ`: Timezone (default: Europe/Stockholm)
-- Service ports (Sonarr: 8989, Radarr: 7878, etc.)
-
-### Manual Setup (Alternative)
-
-Or manually instead of using bootstrap.sh:
-
-```bash
-# Create directories
-mkdir -p config/{qbittorrent,prowlarr,sonarr,radarr}
-sudo mkdir -p /mnt/media/{downloads/{incomplete,completed},tv,movies}
-sudo chown -R "${PUID:-1000}:${PGID:-1001}" /mnt/media
-
-# Start services
-docker compose up -d
-```
-
-## Configuration
-
-### Environment Variables
-
-See `.env.example` for all available options. Key variables:
-
-```bash
-# Basic settings
-TZ=Europe/Stockholm
-PUID=1000
-PGID=1001
-MEDIA_DIR=/mnt/media
-
-# VPN configuration (if USE_VPN=true)
-VPN_SERVICE_PROVIDER=protonvpn
-VPN_TYPE=wireguard
-SERVER_COUNTRIES=Sweden
-# Provider-specific credentials (example for ProtonVPN WireGuard):
-WIREGUARD_PRIVATE_KEY=your_private_key
-WIREGUARD_ADDRESSES=your_wireguard_address
-
-# Service ports
-QBIT_WEBUI=8080
-SONARR_PORT=8989
-RADARR_PORT=7878
-# ... etc
-```
-
-### VPN Setup
-
-Gluetun supports all major VPN providers. Configuration varies by provider:
-
-**Important Notes:**
-- Not all VPN providers support port forwarding. Check with your provider before enabling VPN.
-- Even if your provider supports port forwarding, not all servers may support it.
-- Without port forwarding, you may experience reduced torrent performance (seeding/downloading speeds).
-- If your provider doesn't support port forwarding, consider disabling VPN by setting `USE_VPN=false` in your `.env` file.
-
-**ProtonVPN (WireGuard example):**
-```bash
-VPN_SERVICE_PROVIDER=protonvpn
-VPN_TYPE=wireguard
-WIREGUARD_PRIVATE_KEY=your_private_key_here
-WIREGUARD_ADDRESSES=10.2.0.2/32
-SERVER_COUNTRIES=Sweden
-```
-
-**NordVPN (example):**
-```bash
-VPN_SERVICE_PROVIDER=nordvpn
-VPN_TYPE=wireguard
-WIREGUARD_PRIVATE_KEY=your_private_key_here
-SERVER_COUNTRIES=Sweden
-```
-
-**Mullvad (example):**
-```bash
-VPN_SERVICE_PROVIDER=mullvad
-VPN_TYPE=wireguard
-WIREGUARD_PRIVATE_KEY=your_private_key_here
-WIREGUARD_ADDRESSES=your_address
-SERVER_CITIES=Stockholm
-```
-
-For other providers and detailed configuration options, see the [Gluetun documentation](https://github.com/qdm12/gluetun-wiki)
-
-## Cross-Seed Configuration
-
-Cross-Seed automatically searches your indexers for cross-seeds of your existing torrents, helping you maintain better ratios and support the torrent ecosystem.
-
-**Configuration File Location**: `./config/cross-seed/config.js`
-**Documentation**: https://www.cross-seed.org/docs/basics/options
-
-### Initial Setup
-
-Cross-seed is pre-configured to work with qBittorrent, Sonarr, and Radarr automatically.
-
-**⚠️ Important: You must configure indexers for cross-seed to work!**
-
-1. **Configure Cross-Seed indexers**:
-   - Edit `./config/cross-seed/config.js`
-   - Get your Prowlarr API key from Prowlarr → Settings → General
-   - Add your Prowlarr Torznab feeds to the `torznab` array:
-     ```javascript
-     torznab: [
-         "http://prowlarr:9696/1/api?apikey=YOUR_PROWLARR_API_KEY",
-         "http://prowlarr:9696/2/api?apikey=YOUR_PROWLARR_API_KEY",
-     ],
-     ```
-   - Each number (1, 2, etc.) represents an indexer ID in Prowlarr
-   - Find indexer IDs in Prowlarr → Indexers (hover over the Torznab feed icon)
-   - **Full configuration options**: https://www.cross-seed.org/docs/basics/options
-
-2. **Restart Cross-Seed**:
+2. **Clone + bootstrap**
    ```bash
-   docker restart cross-seed
+   git clone https://github.com/your-org/servarr.git
+   cd servarr
+   chmod +x bootstrap.sh
+   ./bootstrap.sh
    ```
 
-3. **Verify it's working**:
-   - Check logs: `docker logs cross-seed`
-   - Look for: `[search] Found X cross seeds from Y original torrents`
+3. **Follow the prompts**
+   - Storage path (`MEDIA_DIR`), PUID/PGID, timezone
+   - VPN provider, credentials, toggle for WireGuard/OpenVPN fields
+   - Docker group GID auto-detected for the health server
+   - Ports, pf-sync, and pf health check
 
-4. **Monitor via Web UI** (optional):
-   - Access at `http://localhost:2468`
-   - Default API key is auto-generated, check with: `docker exec cross-seed cross-seed api-key`
+4. **Let the script run**
+   - Sanity scan → directory setup → Docker orchestration (with live table) → integrations → final health scan → summary.
+
+5. **Open services**
+   - `http://localhost:8989` (Sonarr), `http://localhost:7878` (Radarr), `http://localhost:9696` (Prowlarr), `http://localhost:6767` (Bazarr), `http://localhost:2468` (Cross-Seed), `http://localhost:8080` (qBit via Gluetun), `http://localhost:3000` (health dashboard).
+
+> Tip: Use the same credentials you entered in the wizard for Sonarr/Radarr/Prowlarr/Bazarr/qBittorrent.
+
+---
+
+## Quick Start (Vagrant Sandbox)
+
+Use the Vagrant VM to test fresh installs without touching your host:
+
+```bash
+vagrant up
+# First boot installs Docker, syncs repo, restores cached venv if available
+
+vagrant ssh
+cd /home/vagrant/servarr
+./bootstrap.sh clean -y && ./bootstrap.sh
+```
+
+Convenience provisioners (run from host):
+
+| Command                              | Description                                      |
+|--------------------------------------|--------------------------------------------------|
+| `vagrant provision --bootstrap:run`  | Run `./bootstrap.sh` inside the VM               |
+| `vagrant provision --bootstrap:clean`| Run `./bootstrap.sh clean --yes --purge-*`       |
+| `vagrant provision --bootstrap:dry-run` | Dry-run bootstrap (no writes)                 |
+| `vagrant provision --stack:ps`       | Show container status (`docker compose ps`)      |
+
+Ports are forwarded to the host (e.g., health: `localhost:33000`, qBit: `localhost:38080`). See `docs/vagrant.md` for details.
+
+---
+
+## Configuration Notes
+
+- **`.env`** is created/updated by the wizard; rerunning `./bootstrap.sh` re-prompts only for missing values.
+- **VPN**:
+  - WireGuard prompts: private key, interface CIDR, optional endpoint overrides.
+  - OpenVPN prompts: username/password only.
+  - `USE_VPN=false` launches qBittorrent outside Gluetun while keeping the Arr stack untouched.
+- **pf-sync** keeps qBittorrent’s listen port aligned with Gluetun’s forwarded port. Health dashboard warns if they diverge.
+- **Cross-Seed**, **Recyclarr**, and **Bazarr** integrations are automatic; no manual config file editing required.
+- **Health server** runs with the detected Docker GID so it can inspect containers via `/var/run/docker.sock`.
+
+Update any setting by editing `.env` and rerunning the bootstrapper (changes are idempotent).
+
+---
+
+## Service Access & Credentials
+
+| Service      | URL                   | Notes                                             |
+|--------------|-----------------------|---------------------------------------------------|
+| Sonarr       | `http://localhost:8989` | Uses shared username/password                     |
+| Radarr       | `http://localhost:7878` | Uses shared username/password                     |
+| Prowlarr     | `http://localhost:9696` | Uses shared username/password                     |
+| Bazarr       | `http://localhost:6767` | Uses shared username/password                     |
+| qBittorrent  | `http://localhost:8080` | Credentials synced during bootstrap               |
+| Cross-Seed   | `http://localhost:2468` | API key printed in logs                           |
+| Health       | `http://localhost:3000` | Shows service status, VPN info, pf-sync check     |
+
+For Vagrant, replace `localhost:<port>` with the forwarded host ports listed in the `Vagrantfile`.
+
+---
+
+## Testing
+
+A small unit suite validates the env wizard:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m unittest tests/test_env_setup
+```
+
+The health server (Node) can be tested via `npm test` inside `server-health/` (optional).
+
+---
+
+## Troubleshooting
+
+- **pf-sync shows “container not found”**: ensure `/gluetun/tmp/gluetun/forwarded_port` is mounted (see compose volume `gluetun-tmp`).
+- **Health server build fails with “gid in use”**: rerun the bootstrapper to refresh `.env` with the detected `DOCKER_GID` and rebuild `health-server`.
+- **Bootstrap fails on `docker compose down` warnings**: warnings about unset VPN vars are safe; errors usually mean Docker daemon perms.
+- **Vagrant provisioning fails**: run `vagrant rsync` to sync latest repo changes, especially Dockerfiles and `.env` defaults.
+
+Check the latest log (`logs/bootstrap-latest.log`) for detailed stack traces; re-run failed commands manually if needed.
+
+---
+
+## Contributing
+
+Issues and PRs are welcome. Please:
+
+1. Run `python -m unittest tests/test_env_setup`.
+2. If Vagrant changes are involved, verify with `vagrant up && vagrant provision --bootstrap:run`.
+3. Describe the change and update docs (`README.md`, `docs/vagrant.md`, etc.) as appropriate.
+
+---
+
+## License
+
+MIT. See `LICENSE` for details.
 
 ### Key Configuration Options
 
