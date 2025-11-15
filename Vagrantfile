@@ -15,7 +15,7 @@ Vagrant.configure("2") do |config|
 
   # Share the repo into the VM. rsync keeps host performance high and avoids Docker bind mount issues.
   config.vm.synced_folder ".", "/home/vagrant/servarr", type: "rsync",
-                         rsync__exclude: [".git/", "config/", "logs/", ".venv/"],
+                         rsync__exclude: [".git/", "config/", "logs/", ".venv/", ".env"],
                          owner: "vagrant", group: "vagrant"
 
   config.vm.provider "virtualbox" do |vb|
