@@ -9,6 +9,11 @@ import ipaddress
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+try:  # pragma: no cover - Windows compatibility
+    import grp
+except ImportError:
+    grp = None
+
 try:  # pragma: no cover - only triggered in limited environments
     import typer
 except ImportError:  # pragma: no cover
@@ -51,6 +56,14 @@ def _default_gid() -> str:
         return str(os.getgid())
     except AttributeError:
         return "1000"
+
+def _default_docker_gid() -> str:
+    if grp:
+        try:
+            return str(grp.getgrnam("docker").gr_gid)
+        except KeyError:
+            pass
+    return "984"
 
 
 VPN_FILTER_FLAG = "VPN_FILTERS_ENABLED"
@@ -159,6 +172,7 @@ PROMPT_SECTIONS: List[PromptSection] = [
             EnvPrompt("MEDIA_DIR", "Media directory for downloads and library", "/mnt/media", validator=_validate_non_empty),
             EnvPrompt("PUID", "Container user ID (PUID)", _default_uid(), validator=_validate_positive_int),
             EnvPrompt("PGID", "Container group ID (PGID)", _default_gid(), validator=_validate_positive_int),
+            EnvPrompt("DOCKER_GID", "Docker group ID (for health server)", _default_docker_gid(), validator=_validate_positive_int),
             EnvPrompt("LAN_SUBNET", "LAN subnet (CIDR) for allowlists", "192.168.1.0/24", validator=_validate_cidr),
             EnvPrompt("TZ", "System timezone", "", required=True, validator=_validate_non_empty),
         ],

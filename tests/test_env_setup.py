@@ -17,6 +17,7 @@ class EnvSetupTests(unittest.TestCase):
                 "/data/media",
                 "2000",
                 "2000",
+                "999",
                 "10.0.0.0/24",
                 "UTC",
                 "admin",
@@ -50,6 +51,7 @@ class EnvSetupTests(unittest.TestCase):
             self.assertEqual(entries["MEDIA_DIR"], "/data/media")
             self.assertEqual(entries["PUID"], "2000")
             self.assertEqual(entries["PGID"], "2000")
+            self.assertEqual(entries["DOCKER_GID"], "999")
             self.assertEqual(entries["LAN_SUBNET"], "10.0.0.0/24")
             self.assertEqual(entries["TZ"], "UTC")
             self.assertEqual(entries["SERVARR_USERNAME"], "admin")
@@ -79,6 +81,8 @@ class EnvSetupTests(unittest.TestCase):
                         "PUID=1000",
                         "PGID=1000",
                         "LAN_SUBNET=10.0.0.0/24",
+                        "DOCKER_GID=999",
+                        "DOCKER_GID=999",
                         "TZ=UTC",
                         "SERVARR_USERNAME=user",
                         "SERVARR_PASSWORD=pass",
@@ -129,6 +133,7 @@ class EnvSetupTests(unittest.TestCase):
                 "/data/media",
                 "2000",
                 "2000",
+                "999",
                 "10.0.0.0/24",
                 "UTC",
                 "admin",
@@ -161,6 +166,7 @@ class EnvSetupTests(unittest.TestCase):
                 "/data/media",
                 "2000",
                 "2000",
+                "999",
                 "10.0.0.0/24",
                 "UTC",
                 "admin",
@@ -203,6 +209,7 @@ class EnvSetupTests(unittest.TestCase):
                 "/data/media",
                 "2000",
                 "2000",
+                "999",
                 "10.0.0.0/24",
                 "UTC",
                 "admin",
@@ -251,6 +258,7 @@ class EnvSetupTests(unittest.TestCase):
                 "/data/media",
                 "2000",
                 "2000",
+                "999",
                 "10.0.0.0/24",
                 "UTC",
                 "admin",
@@ -291,6 +299,7 @@ class EnvSetupTests(unittest.TestCase):
                 "/data/media",
                 "2000",
                 "2000",
+                "999",
                 "10.0.0.0/24",
                 "UTC",
                 "admin",
@@ -329,6 +338,7 @@ class EnvSetupTests(unittest.TestCase):
                 "/data/media",
                 "2000",
                 "2000",
+                "999",
                 "10.0.0.0/24",
                 "UTC",
                 "admin",
@@ -373,6 +383,7 @@ class EnvSetupTests(unittest.TestCase):
                 "/data/media",
                 "2000",
                 "2000",
+                "999",
                 "10.0.0.0/24",
                 "UTC",
                 "admin",
@@ -420,6 +431,7 @@ class EnvSetupTests(unittest.TestCase):
                         "MEDIA_DIR=/data",
                         "PUID=1000",
                         "PGID=1000",
+                        "DOCKER_GID=999",
                         "LAN_SUBNET=10.0.0.0/24",
                         "TZ=UTC",
                         "SERVARR_USERNAME=user",
