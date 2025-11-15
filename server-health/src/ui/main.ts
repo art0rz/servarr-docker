@@ -1,6 +1,58 @@
 import './style.css';
 import Chart from 'chart.js/auto';
 
+interface CheckEntry {
+  name: string;
+  ok: boolean;
+  detail?: string;
+}
+
+interface ServiceEntry {
+  name: string;
+  ok: boolean;
+  url?: string;
+  version?: string;
+  queue?: number;
+  indexers?: number;
+  total?: number;
+  sessions?: number;
+  detail?: string;
+}
+
+interface VpnEntry {
+  name: string;
+  ok: boolean;
+  running?: boolean;
+  healthy?: string | null;
+  vpnEgress?: string;
+  forwardedPort?: string;
+}
+
+interface QbitEgressEntry {
+  name: string;
+  ok: boolean;
+  vpnEgress?: string;
+}
+
+interface HealthResponse {
+  vpn?: VpnEntry;
+  qbitEgress?: QbitEgressEntry;
+  services?: ServiceEntry[];
+  checks?: CheckEntry[];
+  gitRef?: string;
+}
+
+interface HistorySample {
+  timestamp: number;
+  dl: number;
+  up: number;
+}
+
+interface HistoryResponse {
+  updatedAt?: string;
+  samples?: HistorySample[];
+}
+
 const summaryEl = document.getElementById('summary');
 const vpnEl = document.getElementById('vpn');
 const servicesEl = document.getElementById('services');
@@ -11,13 +63,13 @@ const chartCanvas = document.getElementById('qbit-chart') as HTMLCanvasElement;
 
 let qbitChart: Chart | null = null;
 
-function renderSummary(checks: any[]) {
+function renderSummary(checks: CheckEntry[]) {
   if (!summaryEl) return;
   const okCount = checks.filter((c) => c.ok).length;
   summaryEl.innerHTML = `<div class="badge">${okCount} / ${checks.length} checks passing</div>`;
 }
 
-function renderVPN(vpn: any, qbitEgress: any) {
+function renderVPN(vpn?: VpnEntry, qbitEgress?: QbitEgressEntry) {
   if (!vpnEl) return;
   const running = vpn?.running ? 'Yes' : 'No';
   vpnEl.innerHTML = `
@@ -36,7 +88,7 @@ function renderVPN(vpn: any, qbitEgress: any) {
   `;
 }
 
-function renderServices(services: any[]) {
+function renderServices(services: ServiceEntry[]) {
   if (!servicesEl) return;
   servicesEl.innerHTML = services
     .map((service) => {
@@ -60,7 +112,7 @@ function renderServices(services: any[]) {
     .join('');
 }
 
-function renderChecks(checks: any[]) {
+function renderChecks(checks: CheckEntry[]) {
   if (!checksEl) return;
   checksEl.innerHTML = checks
     .map((check) => {
@@ -88,7 +140,7 @@ function destroyChart() {
   }
 }
 
-function renderChart(samples: { timestamp: number; dl: number; up: number }[]) {
+function renderChart(samples: HistorySample[]) {
   if (!chartCanvas || !chartStatusEl) return;
   if (!samples.length) {
     chartStatusEl.textContent = 'No qBit data';
@@ -139,18 +191,18 @@ function renderChart(samples: { timestamp: number; dl: number; up: number }[]) {
 
 async function loadHealth() {
   const res = await fetch('/api/health');
-  const data = await res.json();
-  renderSummary(data.checks || []);
+  const data = (await res.json()) as HealthResponse;
+  renderSummary(data.checks ?? []);
   renderVPN(data.vpn, data.qbitEgress);
-  renderServices(data.services || []);
-  renderChecks(data.checks || []);
+  renderServices(data.services ?? []);
+  renderChecks(data.checks ?? []);
   updateGitRef(data.gitRef);
 }
 
 async function loadHistory() {
   const res = await fetch('/api/qbit-history');
-  const data = await res.json();
-  renderChart(data.samples || []);
+  const data = (await res.json()) as HistoryResponse;
+  renderChart(data.samples ?? []);
 }
 
 loadHealth();

@@ -7,7 +7,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from rich.console import Console
 
@@ -477,7 +477,7 @@ class IntegrationRunner:
         provider = self.env.get("PORT_FORWARDING_PROVIDER", "")
         return bool(provider.strip())
 
-    def _retry(self, label: str, func, *, attempts: int = 5, delay: float = 3.0, exceptions: tuple = (Exception,)) -> any:
+    def _retry(self, label: str, func, *, attempts: int = 5, delay: float = 3.0, exceptions: tuple = (Exception,)) -> Any:
         last_exc = None
         for attempt in range(1, attempts + 1):
             try:

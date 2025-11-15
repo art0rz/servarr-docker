@@ -4,19 +4,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc && vite build",
+    "build": "npm run build:server && vite build",
+    "build:server": "tsc",
     "start": "node dist/server/health-server.js",
     "dev": "vite",
-    "test": "node --test"
+    "test": "npm run build:server && node --test dist/server/tests/**/*.js",
+    "lint": "eslint ."
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "@stylistic/eslint-plugin": "^5.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.4",
+    "@typescript-eslint/parser": "^8.46.4",
+    "eslint": "^9.39.1",
+    "express": "^4.19.2",
+    "typescript-eslint": "^8.46.4"
   },
   "devDependencies": {
     "@types/chart.js": "^2.9.41",
     "@types/express": "^5.0.5",
     "@types/node": "^24.10.1",
     "chart.js": "^4.5.1",
+    "jiti": "^2.6.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.8"
   }
