@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { discoverServices } from "./lib/services.js";
-import { loadArrApiKeys, loadQbitCredentials } from "./lib/config.js";
+import { loadArrApiKeys, loadQbitDashboardContext } from "./lib/config.js";
 import {
   probeGluetun,
   probeQbitEgress,
@@ -32,6 +32,8 @@ const HEALTH_INTERVAL_MS = parseInt(process.env.HEALTH_INTERVAL_MS || "1000", 10
 const USE_VPN = process.env.USE_VPN === "true";
 const GIT_REF = resolveGitRef();
 
+const qbitHistory = [];
+
 let healthCache = {
   vpn: USE_VPN ? { name: "VPN", ok: false, running: false, healthy: null } : { name: "VPN", ok: false, running: false, healthy: null },
   qbitEgress: USE_VPN
@@ -48,6 +50,17 @@ let healthCache = {
 
 app.get("/api/health", (_req, res) => {
   res.json(healthCache);
+});
+
+app.get("/api/qbit-history", (_req, res) => {
+  res.json({
+    updatedAt: new Date().toISOString(),
+    samples: qbitHistory.map((entry) => ({
+      timestamp: entry.timestamp,
+      dl: entry.dl,
+      up: entry.up
+    }))
+  });
 });
 
 function resolveGitRef() {
@@ -101,19 +114,28 @@ async function updateVpnSection() {
 async function updateServicesSection() {
   const urls = await discoverServices();
   const apiKeys = await loadArrApiKeys();
-  const qbitAuth = await loadQbitCredentials();
-  const qbitUrl = USE_VPN ? urls.gluetun : urls.qbittorrent;
+  const qbitContext = await loadQbitDashboardContext();
+  const qbitUrl = qbitContext.url || (USE_VPN ? urls.gluetun : urls.qbittorrent);
   const probes = [
     probeSonarr(urls.sonarr, apiKeys.sonarr),
     probeRadarr(urls.radarr, apiKeys.radarr),
     probeProwlarr(urls.prowlarr, apiKeys.prowlarr),
     probeBazarr(urls.bazarr),
-    probeQbit(qbitUrl, qbitAuth),
+    probeQbit(qbitUrl, qbitContext),
     probeCrossSeed(urls["cross-seed"]),
     probeFlare(urls.flaresolverr),
     probeRecyclarr()
   ];
   const services = await Promise.all(probes);
+  const qbitProbe = services.find(s => s.name === "qBittorrent");
+  if (qbitProbe && (typeof qbitProbe.dl === "number" || typeof qbitProbe.up === "number")) {
+    qbitHistory.push({ timestamp: Date.now(), dl: qbitProbe.dl || 0, up: qbitProbe.up || 0 });
+    const retentionMs = 60 * 1000 * 10;
+    const cutoff = Date.now() - retentionMs;
+    while (qbitHistory.length && qbitHistory[0].timestamp < cutoff) {
+      qbitHistory.shift();
+    }
+  }
   publish({ services });
 }
 

@@ -9,7 +9,7 @@ Automated Docker Compose stack for qBittorrent, the Arr suite, Gluetun VPN, pf-s
 - **Opinionated automation** – Single `./bootstrap.sh` run handles config prompts, directory setup, Docker orchestration, integrations, and a final sanity scan (also available via `./bootstrap.sh check`).
 - **VPN-aware torrenting** – qBittorrent lives behind Gluetun; pf-sync reads Gluetun’s forwarded port and updates qBittorrent automatically.
 - **Arr ecosystem** – Sonarr, Radarr, Prowlarr, Bazarr, Recyclarr, and Cross-Seed are wired together out of the box.
-- **Health monitoring** – Health server shows container status, VPN info, and forwarded-port parity via a web dashboard.
+- **Health monitoring** – Health server shows container status, VPN info, forwarded-port parity, pf-sync/disk/image checks, Cross-Seed activity, and a live qBittorrent throughput chart via a web dashboard.
 - **Developer-friendly** – Rich progress display, Vagrant dev environment, auto-detected Docker GID, and an idempotent setup flow.
 
 ---

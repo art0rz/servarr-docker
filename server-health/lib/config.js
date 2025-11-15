@@ -74,6 +74,24 @@ export async function loadQbitCredentials() {
   return null;
 }
 
+const QBIT_WEBUI_REGEX = /qBtApiUrl\s*:\s*["'`](.+?)["'`]/i;
+
+export async function loadQbitDashboardContext() {
+  const cred = await loadQbitCredentials();
+  const configPath = join(CONFIG_ROOT, "cross-seed/config.js");
+  let raw = "";
+  try {
+    raw = await readFile(configPath, "utf-8");
+  } catch {
+    return { username: cred?.username, password: cred?.password };
+  }
+  const match = raw.match(QBIT_WEBUI_REGEX);
+  if (match && match[1]) {
+    return { url: match[1], username: cred?.username, password: cred?.password };
+  }
+  return { username: cred?.username, password: cred?.password };
+}
+
 export async function loadCrossSeedStats() {
   const logPath = join(CONFIG_ROOT, "cross-seed/logs/latest.log");
   let raw;

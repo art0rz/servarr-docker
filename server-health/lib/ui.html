@@ -4,6 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Stack Health</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js" integrity="sha256-b8F4WBttm2R4m4tZqMDmERKtqOJbrrp6pyWbUbXdb9A=" crossorigin="anonymous"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -122,6 +123,19 @@
       padding: 32px;
       font-size: 14px;
     }
+
+    .chart-container {
+      border: 1px solid #1f2a36;
+      border-radius: 12px;
+      padding: 16px;
+      background: #0f141b;
+      margin: 16px 0;
+    }
+
+    canvas {
+      width: 100% !important;
+      height: 120px !important;
+    }
   </style>
 </head>
 <body>
@@ -132,6 +146,11 @@
 
   <main>
     <div id="summary"></div>
+
+    <div class="chart-container">
+      <canvas id="qbit-chart" height="120"></canvas>
+      <div id="chart-status" class="tag"></div>
+    </div>
 
     <h2>VPN</h2>
     <div class="grid" id="vpn"></div>
@@ -274,9 +293,89 @@
       loadHealth();
     }
 
+    let qbitChart = null;
+
+    async function loadQbitHistory() {
+      try {
+        const response = await fetch('/api/qbit-history');
+        const data = await response.json();
+        renderChart(data.samples || []);
+      } catch (error) {
+        console.error('Failed to load qbit history:', error);
+      }
+    }
+
+    function destroyChart() {
+      if (qbitChart) {
+        qbitChart.destroy();
+        qbitChart = null;
+      }
+    }
+
+    function renderChart(samples) {
+      const statusEl = document.getElementById('chart-status');
+      if (!samples.length) {
+        statusEl.textContent = 'No qBit data';
+        destroyChart();
+        return;
+      }
+      statusEl.textContent = '';
+      const labels = samples.map((s) => new Date(s.timestamp).toLocaleTimeString());
+      const dlData = samples.map((s) => ((s.dl || 0) / 1024 / 1024).toFixed(2));
+      const upData = samples.map((s) => ((s.up || 0) / 1024 / 1024).toFixed(2));
+      const ctx = document.getElementById('qbit-chart').getContext('2d');
+      if (!qbitChart) {
+        qbitChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'Download (MB/s)',
+                data: dlData,
+                borderColor: '#3fb950',
+                backgroundColor: 'rgba(63,185,80,0.2)',
+                tension: 0.3
+              },
+              {
+                label: 'Upload (MB/s)',
+                data: upData,
+                borderColor: '#f85149',
+                backgroundColor: 'rgba(248,81,73,0.2)',
+                tension: 0.3
+              }
+            ]
+          },
+          options: {
+            animation: false,
+            responsive: true,
+            scales: {
+              y: {
+                beginAtZero: true
+              }
+            },
+            plugins: {
+              legend: {
+                labels: {
+                  color: '#8b949e'
+                }
+              }
+            }
+          }
+        });
+      } else {
+        qbitChart.data.labels = labels;
+        qbitChart.data.datasets[0].data = dlData;
+        qbitChart.data.datasets[1].data = upData;
+        qbitChart.update('none');
+      }
+    }
+
     // Initial load and auto-refresh
     loadHealth();
+    loadQbitHistory();
     setInterval(loadHealth, 3000);
+    setInterval(loadQbitHistory, 5000);
   </script>
 </body>
 </html>
