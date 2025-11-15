@@ -192,6 +192,8 @@
       if (typeof service.up === 'number') extras.push(`UP: ${formatRate(service.up)}`);
       if (typeof service.total === 'number') extras.push(`Torrents: ${service.total}`);
       if (typeof service.sessions === 'number') extras.push(`Sessions: ${service.sessions}`);
+      if (service.lastRun) extras.push(`Last: ${escapeHtml(service.lastRun)}`);
+      if (typeof service.torrentsAdded === 'number') extras.push(`Added: ${service.torrentsAdded}`);
 
       // Add detail field if present (e.g., error count for recyclarr)
       if (service.detail) extras.push(service.detail);

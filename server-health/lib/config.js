@@ -73,3 +73,33 @@ export async function loadQbitCredentials() {
 
   return null;
 }
+
+export async function loadCrossSeedStats() {
+  const logPath = join(CONFIG_ROOT, "cross-seed/logs/latest.log");
+  let raw;
+  try {
+    raw = await readFile(logPath, "utf-8");
+  } catch {
+    return null;
+  }
+
+  const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+  if (!lines.length) return null;
+
+  let lastTimestamp = null;
+  let added = 0;
+  for (const line of lines) {
+    const tsMatch = line.match(/\[(.*?)\]/);
+    if (tsMatch) {
+      lastTimestamp = tsMatch[1];
+    }
+    if (/added/i.test(line) || /linked/i.test(line)) {
+      added += 1;
+    }
+  }
+
+  return {
+    lastTimestamp,
+    added,
+  };
+}

@@ -1,4 +1,5 @@
 import { cmd, dockerInspect, dockerEnvMap, getEgressIP } from './docker.js';
+import { loadCrossSeedStats } from './config.js';
 
 function buildHeaderArgs(headers = []) {
   return headers
@@ -213,7 +214,16 @@ export async function probeCrossSeed(url) {
   const ok = result.ok;
 
   if (ok) {
-    return { name: "Cross-Seed", url, ok: true, version: "", http: 200 };
+    const stats = await loadCrossSeedStats().catch(() => null);
+    return {
+      name: "Cross-Seed",
+      url,
+      ok: true,
+      version: "",
+      http: 200,
+      lastRun: stats?.lastTimestamp || null,
+      torrentsAdded: typeof stats?.added === "number" ? stats.added : null,
+    };
   }
 
   return { name: "Cross-Seed", url, ok: false, http: 0 };
