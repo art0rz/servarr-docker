@@ -54,6 +54,7 @@ const config: FlatConfig.ConfigArray = [
         allowNumber: false,
         allowNullableObject: false,
       }],
+      '@typescript-eslint/array-type': ['error', { default: 'generic' }],
     },
   },
 ];

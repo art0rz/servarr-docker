@@ -1,8 +1,8 @@
-import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer } from './docker';
-import { loadCrossSeedStats, type QbitCredentials } from './config';
+import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer, getContainerImageAge } from './docker';
+import { loadCrossSeedStats, CONFIG_ROOT, type QbitCredentials } from './config';
 
 interface HttpOptions {
-  headers?: string[];
+  headers?: Array<string>;
   timeout?: number;
 }
 
@@ -10,14 +10,14 @@ function arrHeaders(apiKey: string | null) {
   return apiKey !== null ? [`X-Api-Key: ${apiKey}`] : [];
 }
 
-function qbitHeaders(baseUrl: string, extras: string[] = []) {
+function qbitHeaders(baseUrl: string, extras: Array<string> = []) {
   return [`Referer: ${baseUrl}/`, `Origin: ${baseUrl}`, ...extras];
 }
 
 /**
  * Convert header array to Headers object
  */
-function buildHeaders(headerList: string[] = []) {
+function buildHeaders(headerList: Array<string> = []) {
   const headers = new Headers();
   for (const header of headerList) {
     const separatorIndex = header.indexOf(':');
@@ -98,7 +98,7 @@ interface BaseProbeResult {
 /**
  * Generic probe for *arr services (Sonarr, Radarr, Prowlarr, Bazarr)
  */
-async function probeArrService(name: string, url: string | undefined, headers: string[], apiVersion = 'v3') {
+async function probeArrService(name: string, url: string | undefined, headers: Array<string>, apiVersion = 'v3') {
   if (url === undefined) return { name, ok: false, reason: 'container not found' };
 
   const status = await httpGet(`${url}/api/${apiVersion}/system/status`, { headers });
@@ -186,7 +186,7 @@ export async function probeProwlarr(url: string | undefined, apiKey: string | nu
   const indexers = await httpGet(`${url}/api/v1/indexer`, { headers });
   let active = 0;
   try {
-    const parsed = JSON.parse(indexers.out) as unknown[];
+    const parsed = JSON.parse(indexers.out) as Array<unknown>;
     active = Array.isArray(parsed) ? parsed.filter(i => (i as { enable?: unknown }).enable === true).length : 0;
   } catch {
     // Ignore parse errors
@@ -599,7 +599,7 @@ async function fetchQbitStats(url: string, cookie: string) {
   return { dl, up, total, listenPort };
 }
 
-function summarizeNames(items: unknown[]): string {
+function summarizeNames(items: Array<unknown>): string {
   return items
     .map(item => (item !== null && typeof item === 'object' && 'name' in item && typeof item.name === 'string' ? item.name : null))
     .filter((name): name is string => name !== null)
@@ -623,7 +623,7 @@ async function checkArrDownloadClients(label: string, url: string | undefined, a
   }
 
   try {
-    const clients = JSON.parse(response.out) as unknown[];
+    const clients = JSON.parse(response.out) as Array<unknown>;
     const enabled = Array.isArray(clients) ? clients.filter(client => (client as { enable?: unknown }).enable === true) : [];
     const detail = enabled.length > 0
       ? `enabled: ${summarizeNames(enabled)}`
@@ -659,7 +659,7 @@ export async function checkProwlarrIndexers(url: string | undefined, apiKey: str
   }
 
   try {
-    const indexers = JSON.parse(response.out) as unknown[];
+    const indexers = JSON.parse(response.out) as Array<unknown>;
     const enabled = Array.isArray(indexers) ? indexers.filter(indexer => (indexer as { enable?: unknown }).enable === true) : [];
     const detail = enabled.length > 0
       ? `enabled: ${summarizeNames(enabled)}`
@@ -676,22 +676,119 @@ export async function checkProwlarrIndexers(url: string | undefined, apiKey: str
 }
 
 /**
- * Check pf-sync heartbeat (stub - not yet implemented)
+ * Check pf-sync heartbeat - verify port forwarding sync is working
  */
-export function checkPfSyncHeartbeat(): Promise<CheckResult> {
-  return Promise.resolve({ name: 'pf-sync heartbeat', ok: true, detail: 'not implemented' });
+export async function checkPfSyncHeartbeat() {
+  const name = 'pf-sync heartbeat';
+
+  // Check if container is running
+  const running = await dockerInspect('.State.Running', 'pf-sync');
+  if (running !== true) {
+    return { name, ok: false, detail: 'container not running' };
+  }
+
+  // Check logs for recent activity (last 5 minutes)
+  const fiveMinutesAgo = Math.floor(Date.now() / 1000 - 300);
+  const logs = await getContainerLogs('pf-sync', String(fiveMinutesAgo));
+
+  if (logs.length === 0) {
+    return { name, ok: false, detail: 'no recent activity (5m)' };
+  }
+
+  // Look for successful port updates or error messages
+  const hasError = /error|fail|fatal/i.test(logs);
+  const hasSuccess = /updated|synced|forwarded|success/i.test(logs);
+
+  if (hasError) {
+    return { name, ok: false, detail: 'errors in recent logs' };
+  }
+
+  if (hasSuccess) {
+    return { name, ok: true, detail: 'active (recent sync detected)' };
+  }
+
+  // No errors but also no explicit success - container is running but quiet
+  return { name, ok: true, detail: 'running (no recent activity)' };
 }
 
 /**
- * Check disk usage (stub - not yet implemented)
+ * Check disk usage for important volumes
  */
-export function checkDiskUsage(): Promise<CheckResult> {
-  return Promise.resolve({ name: 'disk usage', ok: true, detail: 'not implemented' });
+export async function checkDiskUsage() {
+  const name = 'disk usage';
+
+  try {
+    // Check disk usage on the config path (using Node.js statfs)
+    const { statfs } = await import('node:fs/promises');
+    const stats = await statfs(CONFIG_ROOT);
+
+    const total = stats.blocks * stats.bsize;
+    const available = stats.bavail * stats.bsize;
+    const used = total - available;
+    const usedPercent = Math.round((used / total) * 100);
+
+    const totalGB = (total / 1024 / 1024 / 1024).toFixed(1);
+    const usedGB = (used / 1024 / 1024 / 1024).toFixed(1);
+    const detail = `${String(usedPercent)}% used (${usedGB}GB / ${totalGB}GB)`;
+
+    // Warn if over 85%, error if over 95%
+    if (usedPercent >= 95) {
+      return { name, ok: false, detail: `${detail} - critical` };
+    } else if (usedPercent >= 85) {
+      return { name, ok: false, detail: `${detail} - warning` };
+    }
+
+    return { name, ok: true, detail };
+  } catch (error) {
+    const err = error instanceof Error ? error.message : String(error);
+    return { name, ok: false, detail: `failed to check: ${err}` };
+  }
 }
 
 /**
- * Check image age (stub - not yet implemented)
+ * Check Docker image age for key containers
  */
-export function checkImageAge(): Promise<CheckResult> {
-  return Promise.resolve({ name: 'image age', ok: true, detail: 'not implemented' });
+export async function checkImageAge() {
+  const name = 'image age';
+
+  // Check a few key containers
+  const containersToCheck = ['sonarr', 'radarr', 'qbittorrent', 'gluetun'];
+
+  try {
+    const results = await Promise.all(
+      containersToCheck.map(async (containerName) => {
+        const created = await getContainerImageAge(containerName);
+        if (created === null) return null;
+
+        const createdDate = new Date(created);
+        const ageMs = Date.now() - createdDate.getTime();
+        const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+
+        return { containerName, ageDays };
+      })
+    );
+
+    const validResults = results.filter((r): r is { containerName: string; ageDays: number } => r !== null);
+
+    if (validResults.length === 0) {
+      return { name, ok: false, detail: 'unable to check any images' };
+    }
+
+    // Find oldest image
+    const oldest = validResults.reduce((max, r) => (r.ageDays > max.ageDays ? r : max));
+
+    // Warn if any image is > 90 days old
+    const hasOld = validResults.some(r => r.ageDays > 90);
+
+    const detail = `oldest: ${oldest.containerName} (${String(oldest.ageDays)}d)`;
+
+    if (hasOld) {
+      return { name, ok: false, detail: `${detail} - update recommended` };
+    }
+
+    return { name, ok: true, detail };
+  } catch (error) {
+    const err = error instanceof Error ? error.message : String(error);
+    return { name, ok: false, detail: `failed to check: ${err}` };
+  }
 }

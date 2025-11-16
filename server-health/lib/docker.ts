@@ -1,12 +1,7 @@
 import Docker from 'dockerode';
-import { exec, ExecOptions } from 'node:child_process';
-import { promisify } from 'node:util';
 
 // Create Docker client instance
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
-
-// Shell executor for temporary curl commands
-const sh = promisify(exec);
 
 export interface CommandResult {
   ok: boolean;
@@ -199,26 +194,21 @@ export async function readFileFromContainer(containerName: string, filePath: str
   return result.ok ? result.out : '';
 }
 
-interface ExecError extends Error {
-  stdout?: Buffer | string;
-  stderr?: Buffer | string;
-}
-
 /**
- * Temporary: Execute a shell command (for curl until we migrate to fetch)
- * This will be removed once we migrate HTTP calls to fetch API
+ * Get image creation date for a container
  */
-export async function cmd(command: string, opts: ExecOptions = {}) {
+export async function getContainerImageAge(containerName: string): Promise<string | null> {
   try {
-    const { stdout } = await sh(command, { timeout: 4000, shell: '/bin/sh', ...opts });
-    return { ok: true, out: stdout.toString().trim() };
-  } catch (e) {
-    const error = e as ExecError;
-    const stderrText = error.stderr?.toString().trim() ?? '';
-    return {
-      ok: false,
-      out: (error.stdout ?? '').toString().trim(),
-      err: stderrText.length > 0 ? stderrText : error.message,
-    };
+    const container = docker.getContainer(containerName);
+    const info = await container.inspect();
+    const imageId = info.Image;
+
+    const image = docker.getImage(imageId);
+    const imageInfo = await image.inspect();
+
+    return imageInfo.Created;
+  } catch {
+    return null;
   }
 }
+
