@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { discoverServices } from './lib/services.js';
-import { loadArrApiKeys, loadQbitCredentials } from './lib/config.js';
+import { discoverServices } from './lib/services';
+import { loadArrApiKeys, loadQbitCredentials } from './lib/config';
 import {
   probeGluetun,
   probeQbitEgress,
@@ -34,7 +34,7 @@ import {
   type CrossSeedProbeResult,
   type RecyclarrProbeResult,
   type CheckResult,
-} from './lib/probes.js';
+} from './lib/probes';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();

@@ -1,4 +1,4 @@
-import { getContainerIP } from './docker.js';
+import { getContainerIP } from './docker';
 
 // Get project name from environment (Docker Compose sets this)
 const PROJECT = process.env['COMPOSE_PROJECT_NAME'] ?? 'servarr';

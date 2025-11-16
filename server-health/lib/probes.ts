@@ -1,5 +1,5 @@
-import { cmd, dockerInspect, dockerEnvMap, getEgressIP, type CommandResult } from './docker.js';
-import { loadCrossSeedStats, type QbitCredentials } from './config.js';
+import { cmd, dockerInspect, dockerEnvMap, getEgressIP, type CommandResult } from './docker';
+import { loadCrossSeedStats, type QbitCredentials } from './config';
 
 interface HttpOptions {
   headers?: string[];
