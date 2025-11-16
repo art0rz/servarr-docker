@@ -39,7 +39,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env['PORT'] ?? '3000';
-const HEALTH_INTERVAL_MS = parseInt(process.env['HEALTH_INTERVAL_MS'] ?? '1000', 10);
+const HEALTH_INTERVAL_MS = parseInt(process.env['HEALTH_INTERVAL_MS'] ?? '10000', 10);
 const USE_VPN = process.env['USE_VPN'] === 'true';
 const GIT_REF = resolveGitRef();
 
@@ -227,7 +227,7 @@ async function updateServicesSection() {
     responseTimes,
   };
 
-  const MAX_CHART_POINTS = 3600; // Keep last 3600 data points (1 hour at 1s intervals)
+  const MAX_CHART_POINTS = 360; // Keep last 360 data points (1 hour at 10s intervals)
   const updatedChartData = [...healthCache.chartData, newDataPoint];
   if (updatedChartData.length > MAX_CHART_POINTS) {
     updatedChartData.shift(); // Remove oldest point
