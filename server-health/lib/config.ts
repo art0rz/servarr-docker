@@ -148,17 +148,27 @@ export interface CrossSeedStats {
   added: number;
 }
 
-export async function loadCrossSeedStats() {
-  const logPath = join(CONFIG_ROOT, 'cross-seed/logs/latest.log');
+// Cross-Seed stats cache
+let crossSeedStatsCache: CrossSeedStats | null = null;
+const CROSS_SEED_LOG = join(CONFIG_ROOT, 'cross-seed/logs/latest.log');
+
+/**
+ * Parse Cross-Seed log file and update cache
+ */
+async function reloadCrossSeedStats() {
   let raw: string;
   try {
-    raw = await readFile(logPath, 'utf-8');
+    raw = await readFile(CROSS_SEED_LOG, 'utf-8');
   } catch {
-    return null;
+    crossSeedStatsCache = null;
+    return;
   }
 
   const lines = raw.trim().split(/\r?\n/).filter(Boolean);
-  if (lines.length === 0) return null;
+  if (lines.length === 0) {
+    crossSeedStatsCache = null;
+    return;
+  }
 
   let lastTimestamp: string | null = null;
   let added = 0;
@@ -172,8 +182,40 @@ export async function loadCrossSeedStats() {
     }
   }
 
-  return {
+  crossSeedStatsCache = {
     lastTimestamp,
     added,
   };
+  console.log(`[config] Cross-Seed stats updated: ${added} torrents added, last run: ${lastTimestamp ?? 'never'}`);
+}
+
+/**
+ * Watch Cross-Seed log file
+ */
+export function watchCrossSeedLog() {
+  console.log('[config] Setting up Cross-Seed log watcher');
+
+  // Initial load
+  void reloadCrossSeedStats();
+
+  try {
+    const watcher = watch(CROSS_SEED_LOG, { persistent: false }, (eventType) => {
+      if (eventType === 'change') {
+        void reloadCrossSeedStats();
+      }
+    });
+
+    watcher.on('error', (error) => {
+      console.error(`[config] Error watching ${CROSS_SEED_LOG}:`, error);
+    });
+  } catch (error) {
+    console.error(`[config] Failed to watch ${CROSS_SEED_LOG}:`, error);
+  }
+}
+
+/**
+ * Get cached Cross-Seed stats
+ */
+export async function loadCrossSeedStats() {
+  return crossSeedStatsCache;
 }
