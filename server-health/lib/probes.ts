@@ -1,16 +1,9 @@
-import { cmd, dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer, type CommandResult } from './docker';
+import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer, type CommandResult } from './docker';
 import { loadCrossSeedStats, type QbitCredentials } from './config';
 
 interface HttpOptions {
   headers?: string[];
   timeout?: number;
-}
-
-function buildHeaderArgs(headers: string[] = []): string {
-  return headers
-    .filter(Boolean)
-    .map(header => `-H ${JSON.stringify(header)}`)
-    .join(' ');
 }
 
 function arrHeaders(apiKey: string | null): string[] {
@@ -21,30 +14,101 @@ function qbitHeaders(baseUrl: string, extras: string[] = []): string[] {
   return [`Referer: ${baseUrl}/`, `Origin: ${baseUrl}`, ...extras];
 }
 
-function headerArgsString(headers: string[] = []): string {
-  const args = buildHeaderArgs(headers);
-  return args.length > 0 ? `${args} ` : '';
-}
-
 /**
- * Make a GET request using curl
+ * Make a GET request using native fetch
  */
 async function httpGet(url: string, options: HttpOptions = {}): Promise<CommandResult> {
-  const timeout = options.timeout ?? 3;
-  const headerArgs = buildHeaderArgs(options.headers);
-  const headerSegment = headerArgs.length > 0 ? `${headerArgs} ` : '';
-  return cmd(`curl -sS -m ${String(timeout)} ${headerSegment}${JSON.stringify(url)}`);
+  const timeout = (options.timeout ?? 3) * 1000; // Convert to milliseconds
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => { controller.abort(); }, timeout);
+
+  try {
+    // Convert header array to Headers object
+    const headers = new Headers();
+    if (options.headers !== undefined) {
+      for (const header of options.headers) {
+        const separatorIndex = header.indexOf(':');
+        if (separatorIndex > 0) {
+          const key = header.slice(0, separatorIndex).trim();
+          const value = header.slice(separatorIndex + 1).trim();
+          headers.set(key, value);
+        }
+      }
+    }
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    });
+
+    const text = await response.text();
+    const ok = response.ok;
+
+    if (ok) {
+      return { ok: true, out: text };
+    } else {
+      return { ok: false, out: '', err: text };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      out: '',
+      err: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /**
- * Make a POST request using curl
+ * Make a POST request using native fetch
  */
 async function httpPost(url: string, body: unknown, options: HttpOptions = {}): Promise<CommandResult> {
-  const data = JSON.stringify(body);
-  const headers = ['Content-Type: application/json', ...(options.headers ?? [])];
-  const headerArgs = buildHeaderArgs(headers);
-  const timeout = options.timeout ?? 4;
-  return cmd(`curl -sS -m ${String(timeout)} ${headerArgs} --data ${JSON.stringify(data)} ${JSON.stringify(url)}`);
+  const timeout = (options.timeout ?? 4) * 1000; // Convert to milliseconds
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => { controller.abort(); }, timeout);
+
+  try {
+    // Convert header array to Headers object
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json');
+
+    if (options.headers !== undefined) {
+      for (const header of options.headers) {
+        const separatorIndex = header.indexOf(':');
+        if (separatorIndex > 0) {
+          const key = header.slice(0, separatorIndex).trim();
+          const value = header.slice(separatorIndex + 1).trim();
+          headers.set(key, value);
+        }
+      }
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    const text = await response.text();
+    const ok = response.ok;
+
+    if (ok) {
+      return { ok: true, out: text };
+    } else {
+      return { ok: false, out: '', err: text };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      out: '',
+      err: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 interface BaseProbeResult {
@@ -194,22 +258,49 @@ export async function probeQbit(url: string | undefined, auth: QbitCredentials |
   const name = 'qBittorrent';
   if (url === undefined) return { name, ok: false, reason: 'container not found' };
 
-  const headerArgs = headerArgsString(qbitHeaders(url));
-  const versionResult = await cmd(
-    `curl -sS -m 3 ${headerArgs}-w "%{http_code}" -o - ${JSON.stringify(url + '/api/v2/app/webapiVersion')}`
-  );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => { controller.abort(); }, 3000);
 
   let ok = false;
   let version = '';
+  let versionResult: { ok: boolean; out: string; err?: string } = { ok: false, out: '', err: '' };
 
-  if (versionResult.ok) {
-    const body = versionResult.out.slice(0, -3).trim();
-    const code = versionResult.out.slice(-3);
-
-    if (code === '200' && !/^Forbidden/i.test(body)) {
-      ok = true;
-      version = body;
+  try {
+    const headers = new Headers();
+    const qbitHeaderList = qbitHeaders(url);
+    for (const header of qbitHeaderList) {
+      const separatorIndex = header.indexOf(':');
+      if (separatorIndex > 0) {
+        const key = header.slice(0, separatorIndex).trim();
+        const value = header.slice(separatorIndex + 1).trim();
+        headers.set(key, value);
+      }
     }
+
+    const response = await fetch(`${url}/api/v2/app/webapiVersion`, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    });
+
+    const body = await response.text();
+    const code = response.status;
+
+    if (code === 200 && !/^Forbidden/i.test(body)) {
+      ok = true;
+      version = body.trim();
+      versionResult = { ok: true, out: body.trim() };
+    } else {
+      versionResult = { ok: false, out: body, err: `HTTP ${String(code)}` };
+    }
+  } catch (error) {
+    versionResult = {
+      ok: false,
+      out: '',
+      err: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   let dl: number | null = null;
@@ -417,14 +508,44 @@ export async function probeRecyclarr(): Promise<RecyclarrProbeResult> {
 
 async function qbitLogin(url: string, auth: QbitCredentials): Promise<string | null> {
   const payload = `username=${encodeURIComponent(auth.username)}&password=${encodeURIComponent(auth.password)}`;
-  const headers = qbitHeaders(url, ['Content-Type: application/x-www-form-urlencoded']);
-  const command = `curl -sS -m 4 ${headerArgsString(headers)}-D - -o /dev/null --data ${JSON.stringify(payload)} ${JSON.stringify(url + '/api/v2/auth/login')}`;
-  const response = await cmd(command);
-  if (!response.ok) return null;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => { controller.abort(); }, 4000);
 
-  const match = /set-cookie:\s*SID=([^;]+)/i.exec(response.out);
-  const sid = match?.[1] !== undefined ? match[1].trim() : null;
-  return sid;
+  try {
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/x-www-form-urlencoded');
+
+    const qbitHeaderList = qbitHeaders(url);
+    for (const header of qbitHeaderList) {
+      const separatorIndex = header.indexOf(':');
+      if (separatorIndex > 0) {
+        const key = header.slice(0, separatorIndex).trim();
+        const value = header.slice(separatorIndex + 1).trim();
+        headers.set(key, value);
+      }
+    }
+
+    const response = await fetch(`${url}/api/v2/auth/login`, {
+      method: 'POST',
+      headers,
+      body: payload,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) return null;
+
+    // Extract SID from Set-Cookie header
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie === null) return null;
+
+    const match = /SID=([^;]+)/.exec(setCookie);
+    const sid = match?.[1] !== undefined ? match[1].trim() : null;
+    return sid;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 interface QbitStats {
