@@ -1,5 +1,5 @@
 import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer, getContainerImageAge } from './docker';
-import { loadCrossSeedStats, CONFIG_ROOT, type QbitCredentials } from './config';
+import { loadCrossSeedStats, MEDIA_ROOT, type QbitCredentials } from './config';
 
 interface HttpOptions {
   headers?: Array<string>;
@@ -715,12 +715,12 @@ export async function checkPfSyncHeartbeat() {
  * Check disk usage for important volumes
  */
 export async function checkDiskUsage() {
-  const name = 'disk usage';
+  const name = 'disk usage (media)';
 
   try {
-    // Check disk usage on the config path (using Node.js statfs)
+    // Check disk usage on the media directory
     const { statfs } = await import('node:fs/promises');
-    const stats = await statfs(CONFIG_ROOT);
+    const stats = await statfs(MEDIA_ROOT);
 
     const total = stats.blocks * stats.bsize;
     const available = stats.bavail * stats.bsize;
@@ -729,7 +729,8 @@ export async function checkDiskUsage() {
 
     const totalGB = (total / 1024 / 1024 / 1024).toFixed(1);
     const usedGB = (used / 1024 / 1024 / 1024).toFixed(1);
-    const detail = `${String(usedPercent)}% used (${usedGB}GB / ${totalGB}GB)`;
+    const availableGB = (available / 1024 / 1024 / 1024).toFixed(1);
+    const detail = `${String(usedPercent)}% used (${usedGB}GB / ${totalGB}GB, ${availableGB}GB free)`;
 
     // Warn if over 85%, error if over 95%
     if (usedPercent >= 95) {
