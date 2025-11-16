@@ -147,10 +147,86 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// Initial load and auto-refresh
+// WebSocket connection
+let ws: WebSocket | null = null;
+let reconnectTimeout: number | null = null;
+
+interface WSMessage {
+  type: 'health' | 'chartPoint';
+  data: Partial<HealthData> | ChartDataPoint;
+}
+
+function connectWebSocket() {
+  // Clear any existing reconnect timeout
+  if (reconnectTimeout !== null) {
+    clearTimeout(reconnectTimeout);
+    reconnectTimeout = null;
+  }
+
+  // Determine WebSocket URL (ws:// or wss://)
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}`;
+
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => {
+    console.log('[ws] Connected');
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data as string) as WSMessage;
+
+      if (message.type === 'health') {
+        // Partial health update - merge with current state and re-render
+        void loadHealth();
+      } else if (message.type === 'chartPoint') {
+        // New chart data point - append to chartData
+        const newPoint = message.data as ChartDataPoint;
+        chartData.push(newPoint);
+
+        // Keep only last 360 points (1 hour at 10s intervals)
+        const MAX_CHART_POINTS = 360;
+        if (chartData.length > MAX_CHART_POINTS) {
+          chartData.shift();
+        }
+
+        // Update charts
+        if (chartsInitialized) {
+          updateCharts(chartData);
+        }
+      }
+    } catch (error) {
+      console.error('[ws] Failed to parse message:', error);
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('[ws] Error:', error);
+  };
+
+  ws.onclose = () => {
+    console.log('[ws] Disconnected, reconnecting in 5s...');
+    ws = null;
+    // Reconnect after 5 seconds
+    reconnectTimeout = window.setTimeout(() => {
+      connectWebSocket();
+    }, 5000);
+  };
+}
+
+// Initial load via HTTP
 void loadHealth();
 void loadChartData();
 
-// Refresh health status every 3s, chart data every 10s
-setInterval(() => { void loadHealth(); }, 3000);
-setInterval(() => { void loadChartData(); }, 10000);
+// Connect WebSocket for real-time updates
+connectWebSocket();
+
+// Fallback polling if WebSocket fails (every 30s)
+setInterval(() => {
+  if (ws === null || ws.readyState !== WebSocket.OPEN) {
+    console.log('[fallback] WebSocket not connected, polling HTTP...');
+    void loadHealth();
+    void loadChartData();
+  }
+}, 30000);

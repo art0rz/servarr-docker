@@ -2,6 +2,8 @@ import express, { type Request, type Response } from 'express';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { WebSocketServer, type WebSocket } from 'ws';
+import type { Server } from 'node:http';
 
 import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles, watchCrossSeedLog } from './lib/config';
@@ -43,6 +45,9 @@ const PORT = process.env['PORT'] ?? '3000';
 const HEALTH_INTERVAL_MS = parseInt(process.env['HEALTH_INTERVAL_MS'] ?? '10000', 10);
 const USE_VPN = process.env['USE_VPN'] === 'true';
 const GIT_REF = resolveGitRef();
+
+// WebSocket clients
+const wsClients = new Set<WebSocket>();
 
 type ServiceProbeResult =
   | SonarrProbeResult
@@ -146,6 +151,15 @@ function resolveGitRef() {
   }
 }
 
+function broadcastToClients(message: unknown) {
+  const payload = JSON.stringify(message);
+  for (const client of wsClients) {
+    if (client.readyState === 1) { // WebSocket.OPEN
+      client.send(payload);
+    }
+  }
+}
+
 function publish(partial: Partial<HealthCache>) {
   healthCache = {
     ...healthCache,
@@ -155,6 +169,14 @@ function publish(partial: Partial<HealthCache>) {
     error: partial.error ?? null,
     gitRef: GIT_REF,
   };
+
+  // Broadcast update to WebSocket clients (exclude chartData for health updates)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { chartData, ...updateData } = partial;
+  broadcastToClients({
+    type: 'health',
+    data: updateData,
+  });
 }
 
 function startWatcher(name: string, fn: () => Promise<void>, interval: number) {
@@ -234,7 +256,15 @@ async function updateServicesSection() {
     updatedChartData.shift(); // Remove oldest point
   }
 
-  publish({ services, chartData: updatedChartData });
+  // Update local cache with full chart data
+  healthCache.chartData = updatedChartData;
+
+  // Broadcast services update and new chart point separately
+  publish({ services });
+  broadcastToClients({
+    type: 'chartPoint',
+    data: newDataPoint,
+  });
 }
 
 async function updateChecksSection() {
@@ -314,6 +344,25 @@ startWatcher('checks', updateChecksSection, HEALTH_INTERVAL_MS * 2);
 // Serve static files from the built client
 app.use(express.static(join(__dirname, '..', 'client')));
 
-app.listen(PORT, () => {
+// Create HTTP server
+const server = app.listen(PORT, () => {
   console.log(`Health server listening on :${PORT}`);
+}) as Server;
+
+// Create WebSocket server
+const wss = new WebSocketServer({ server });
+
+wss.on('connection', (ws: WebSocket) => {
+  console.log('[ws] Client connected');
+  wsClients.add(ws);
+
+  ws.on('close', () => {
+    console.log('[ws] Client disconnected');
+    wsClients.delete(ws);
+  });
+
+  ws.on('error', (error) => {
+    console.error('[ws] WebSocket error:', error);
+    wsClients.delete(ws);
+  });
 });

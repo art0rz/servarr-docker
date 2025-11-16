@@ -20,11 +20,13 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@types/ws": "^8.18.1",
     "chart.js": "^4.5.1",
     "chartjs-adapter-date-fns": "^3.0.0",
     "date-fns": "^4.1.0",
     "dockerode": "^4.0.9",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
