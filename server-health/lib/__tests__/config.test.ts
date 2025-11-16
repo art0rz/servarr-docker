@@ -43,39 +43,45 @@ describe('Config File Parsing', () => {
     });
   });
 
-  describe('INI API Key Reading', () => {
-    it('should extract API key from Bazarr INI config', async () => {
-      const iniContent = `[general]
-port = 6767
+  describe('YAML API Key Reading', () => {
+    it('should extract API key from Bazarr YAML config', async () => {
+      const yamlContent = `---
+general:
+  port: 6767
 
-[auth]
-type = form
-apikey = bazarr-test-key-xyz
+auth:
+  type: form
+  apikey: bazarr-test-key-xyz
+  username: test
 
-[sonarr]
-ip = 172.18.0.5`;
+sonarr:
+  ip: 172.18.0.5`;
 
-      mockFs.setFile('/config/bazarr/config/config.ini', iniContent);
-      const content = await mockFs.readFile('/config/bazarr/config/config.ini', 'utf-8');
+      mockFs.setFile('/config/bazarr/config/config.yaml', yamlContent);
+      const content = await mockFs.readFile('/config/bazarr/config/config.yaml', 'utf-8');
 
       const lines = content.split(/\r?\n/);
-      let inSection = false;
+      const stack: string[] = [];
       let apiKey: string | null = null;
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed === '[auth]') {
-          inSection = true;
-          continue;
-        }
-        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-          inSection = false;
-          continue;
-        }
-        if (inSection && trimmed.startsWith('apikey')) {
-          const parts = trimmed.split('=', 2);
-          if (parts.length === 2 && parts[1] !== undefined) {
-            apiKey = parts[1].trim();
+        if (line.trim().startsWith('#') || line.trim().length === 0 || line.trim() === '---') continue;
+
+        const indentMatch = /^( *)/.exec(line);
+        const indent = indentMatch?.[1]?.length ?? 0;
+        const depth = Math.floor(indent / 2);
+
+        const kvMatch = /^(\s*)([^:]+):\s*(.*)$/.exec(line);
+        if (kvMatch !== null && kvMatch[2] !== undefined) {
+          const key = kvMatch[2].trim();
+          const value = kvMatch[3]?.trim() ?? '';
+
+          stack.splice(depth);
+          stack[depth] = key;
+
+          const currentPath = stack.slice(0, depth + 1).join('.');
+          if (currentPath === 'auth.apikey' && value.length > 0) {
+            apiKey = value;
           }
         }
       }

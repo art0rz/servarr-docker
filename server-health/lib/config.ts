@@ -13,7 +13,7 @@ const API_FILES = {
   sonarr: 'sonarr/config.xml',
   radarr: 'radarr/config.xml',
   prowlarr: 'prowlarr/config.xml',
-  bazarr: 'bazarr/config/config.ini',
+  bazarr: 'bazarr/config/config.yaml',
 } as const;
 
 let apiKeyCache: Record<string, string | null> | null = null;
@@ -30,29 +30,41 @@ async function readXmlValue(relPath: string, tag: string) {
   }
 }
 
-async function readIniValue(relPath: string, section: string, key: string) {
+async function readYamlValue(relPath: string, path: string) {
   const filePath = join(CONFIG_ROOT, relPath);
   try {
     const raw = await readFile(filePath, 'utf-8');
+
+    // Simple YAML parser for nested keys (e.g., "auth.apikey")
     const lines = raw.split(/\r?\n/);
-    let inSection = false;
+    const stack: string[] = [];
+
     for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed === `[${section}]`) {
-        inSection = true;
-        continue;
-      }
-      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        inSection = false;
-        continue;
-      }
-      if (inSection && trimmed.startsWith(key)) {
-        const parts = trimmed.split('=', 2);
-        if (parts.length === 2 && parts[1] !== undefined) {
-          return parts[1].trim();
+      if (line.trim().startsWith('#') || line.trim().length === 0) continue;
+
+      // Calculate indentation depth
+      const indentMatch = /^( *)/.exec(line);
+      const indent = indentMatch?.[1]?.length ?? 0;
+      const depth = Math.floor(indent / 2);
+
+      // Parse key: value
+      const kvMatch = /^(\s*)([^:]+):\s*(.*)$/.exec(line);
+      if (kvMatch !== null && kvMatch[2] !== undefined) {
+        const key = kvMatch[2].trim();
+        const value = kvMatch[3]?.trim() ?? '';
+
+        // Update stack based on depth
+        stack.splice(depth);
+        stack[depth] = key;
+
+        // Check if this matches our path
+        const currentPath = stack.slice(0, depth + 1).join('.');
+        if (currentPath === path && value.length > 0) {
+          return value;
         }
       }
     }
+
     return null;
   } catch {
     return null;
@@ -66,7 +78,7 @@ async function reloadApiKeys() {
     Object.entries(API_FILES).map(async ([name, relPath]) => {
       let apiKey: string | null;
       if (name === 'bazarr') {
-        apiKey = await readIniValue(relPath, 'auth', 'apikey');
+        apiKey = await readYamlValue(relPath, 'auth.apikey');
       } else {
         apiKey = await readXmlValue(relPath, 'ApiKey');
       }
@@ -150,7 +162,7 @@ export interface CrossSeedStats {
 
 // Cross-Seed stats cache
 let crossSeedStatsCache: CrossSeedStats | null = null;
-const CROSS_SEED_LOG = join(CONFIG_ROOT, 'cross-seed/logs/latest.log');
+const CROSS_SEED_LOG = join(CONFIG_ROOT, 'cross-seed/logs/info.current.log');
 
 /**
  * Parse Cross-Seed log file and update cache
@@ -172,12 +184,26 @@ async function reloadCrossSeedStats() {
 
   let lastTimestamp: string | null = null;
   let added = 0;
+
+  // Parse structured log format: YYYY-MM-DD HH:MM:SS.mmm level: [component] message
   for (const line of lines) {
-    const tsMatch = /\[(.*?)\]/.exec(line);
+    // Extract timestamp from beginning of line
+    const tsMatch = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/.exec(line);
     if (tsMatch?.[1] !== undefined) {
       lastTimestamp = tsMatch[1];
     }
-    if (/added/i.test(line) || /linked/i.test(line)) {
+
+    // Count successful injections: "Injected X/Y torrents" where X > 0
+    const injectMatch = /\[inject\] Injected (\d+)\/\d+ torrents/.exec(line);
+    if (injectMatch !== null) {
+      const injected = parseInt(injectMatch[1] ?? '0', 10);
+      if (injected > 0) {
+        added += injected;
+      }
+    }
+
+    // Also count saved torrents from search
+    if (/saved to/.test(line) || /SAVED/.test(line)) {
       added += 1;
     }
   }
