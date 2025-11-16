@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MockFileSystem, fixtures } from './mocks';
+import { MockFileSystem } from './mocks';
 
 describe('Config File Parsing', () => {
   let mockFs: MockFileSystem;

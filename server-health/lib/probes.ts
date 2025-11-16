@@ -203,8 +203,8 @@ export type BazarrProbeResult = BaseProbeResult;
 export async function probeBazarr(url: string | undefined, apiKey: string | null): Promise<BazarrProbeResult> {
   if (url === undefined) return { name: 'Bazarr', ok: false, reason: 'container not found' };
 
-  const headers = apiKey !== null ? { 'X-API-KEY': apiKey } : {};
-  const status = await httpGet(`${url}/api/system/status`, headers);
+  const headers = apiKey !== null ? [`X-API-KEY: ${apiKey}`] : [];
+  const status = await httpGet(`${url}/api/system/status`, { headers });
   const ok = status.ok;
   let version = '';
 

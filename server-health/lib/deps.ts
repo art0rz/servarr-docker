@@ -110,10 +110,11 @@ export class DockerodeClient implements DockerClient {
       if (target === undefined) return '';
 
       const container = this.docker.getContainer(target.Names[0] ?? '');
-      const options: Docker.ContainerLogsOptions = {
+      const options: Docker.ContainerLogsOptions & { follow: false } = {
         stdout: true,
         stderr: true,
         tail: 1000,
+        follow: false,
       };
 
       if (since !== undefined) {
