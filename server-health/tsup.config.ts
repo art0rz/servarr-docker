@@ -10,7 +10,7 @@ export default defineConfig({
   minify: false,
   bundle: true,
   // Keep dependencies external (they'll be in node_modules)
-  external: ['express'],
+  external: ['express', 'dockerode'],
   splitting: false,
   treeshake: true,
   dts: false, // We don't need .d.ts files for the server executable

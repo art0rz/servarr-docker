@@ -1,4 +1,4 @@
-import { cmd, dockerInspect, dockerEnvMap, getEgressIP, type CommandResult } from './docker';
+import { cmd, dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer, type CommandResult } from './docker';
 import { loadCrossSeedStats, type QbitCredentials } from './config';
 
 interface HttpOptions {
@@ -315,10 +315,10 @@ export async function probeGluetun(): Promise<GluetunProbeResult> {
   const pfEnv = env['VPN_PORT_FORWARDING'] ?? env['PORT_FORWARDING'] ?? '';
   const pfExpected = pfEnv.toLowerCase() === 'on';
 
-  const [healthy, running, forwarded, uiMap, ip] = await Promise.all([
+  const [healthy, running, forwardedPort, uiMap, ip] = await Promise.all([
     dockerInspect('.State.Health.Status', name),
     dockerInspect('.State.Running', name),
-    cmd(`docker exec ${name} sh -c 'cat /tmp/gluetun/forwarded_port 2>/dev/null || true'`),
+    readFileFromContainer(name, '/tmp/gluetun/forwarded_port'),
     dockerInspect(`.NetworkSettings.Ports["8080/tcp"]`, name),
     getEgressIP(name).catch(() => ''),
   ]);
@@ -340,7 +340,7 @@ export async function probeGluetun(): Promise<GluetunProbeResult> {
     running: runningBool,
     healthy: healthyStr,
     vpnEgress: ip.length > 0 ? ip : '',
-    forwardedPort: forwarded.ok ? forwarded.out.trim() : '',
+    forwardedPort,
     pfExpected,
     uiHostPort: uiHostPort.length > 0 ? uiHostPort : '',
   };
@@ -382,15 +382,15 @@ export async function probeRecyclarr(): Promise<RecyclarrProbeResult> {
     return { name, ok: false, reason: 'container not running' };
   }
 
-  // Get logs from last 24 hours using since flag
-  const logs = await cmd(`docker logs recyclarr --since 24h 2>&1`);
+  // Get logs from last 24 hours
+  const logsText = await getContainerLogs('recyclarr', '24h');
 
-  if (!logs.ok) {
+  if (logsText.length === 0) {
     return { name, ok: false, reason: 'failed to read logs' };
   }
 
   // Count errors in last 24h
-  const logLines = logs.out.split('\n');
+  const logLines = logsText.split('\n');
   const errorLines = logLines.filter(line => {
     const lower = line.toLowerCase();
     return lower.includes('[err]') || (lower.includes('error') && !lower.includes('0 error'));
@@ -398,7 +398,7 @@ export async function probeRecyclarr(): Promise<RecyclarrProbeResult> {
   const errorCount = errorLines.length;
 
   // Check for success indicators
-  const logText = logs.out.toLowerCase();
+  const logText = logsText.toLowerCase();
   const hasSuccess = logText.includes('completed successfully') ||
                      logText.includes('[inf]') ||
                      logText.includes('starting cron');
