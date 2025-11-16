@@ -1,12 +1,149 @@
 import Docker from 'dockerode';
+import type { Readable } from 'node:stream';
 
 // Create Docker client instance
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+
+// Container state cache
+interface CachedContainer {
+  id: string;
+  name: string;
+  state: string;
+  health?: string | null;
+  networks: Record<string, { IPAddress?: string }>;
+  updatedAt: number;
+}
+
+const containerCache = new Map<string, CachedContainer>();
+let eventStreamActive = false;
 
 export interface CommandResult {
   ok: boolean;
   out: string;
   err?: string;
+}
+
+/**
+ * Load all containers into cache
+ */
+async function refreshContainerCache() {
+  try {
+    const containers = await docker.listContainers({ all: true });
+
+    for (const container of containers) {
+      const name = container.Names[0]?.replace(/^\//, '') ?? '';
+      if (name.length === 0) continue;
+
+      const fullInfo = await docker.getContainer(container.Id).inspect();
+      const networks = fullInfo.NetworkSettings.Networks as Record<string, { IPAddress?: string }>;
+
+      containerCache.set(name, {
+        id: container.Id,
+        name,
+        state: container.State,
+        health: fullInfo.State.Health?.Status ?? null,
+        networks,
+        updatedAt: Date.now(),
+      });
+    }
+
+    console.log(`[docker] Cached ${containerCache.size} containers`);
+  } catch (error) {
+    console.error('[docker] Failed to refresh container cache:', error);
+  }
+}
+
+/**
+ * Watch Docker events and update cache
+ */
+export async function watchDockerEvents() {
+  if (eventStreamActive) {
+    console.log('[docker] Event stream already active');
+    return;
+  }
+
+  console.log('[docker] Setting up Docker events stream');
+
+  // Initial cache load
+  await refreshContainerCache();
+
+  try {
+    const stream = await docker.getEvents({}) as Readable;
+    eventStreamActive = true;
+
+    stream.on('data', (chunk: Buffer) => {
+      try {
+        const event = JSON.parse(chunk.toString()) as {
+          Type: string;
+          Action: string;
+          Actor?: { Attributes?: { name?: string } };
+          id?: string;
+        };
+
+        if (event.Type !== 'container') return;
+
+        const containerName = event.Actor?.Attributes?.name ?? '';
+        if (containerName.length === 0) return;
+
+        // Events we care about: start, stop, die, kill, health_status
+        if (['start', 'stop', 'die', 'kill', 'health_status', 'create', 'destroy'].includes(event.Action)) {
+          console.log(`[docker] Container event: ${containerName} - ${event.Action}`);
+
+          // Refresh this specific container's info
+          if (event.id !== undefined) {
+            void updateContainerInCache(event.id, containerName);
+          }
+        }
+      } catch (error) {
+        console.error('[docker] Failed to parse event:', error);
+      }
+    });
+
+    stream.on('error', (error) => {
+      console.error('[docker] Event stream error:', error);
+      eventStreamActive = false;
+      // Reconnect after delay
+      setTimeout(() => { void watchDockerEvents(); }, 5000);
+    });
+
+    stream.on('end', () => {
+      console.log('[docker] Event stream ended, reconnecting...');
+      eventStreamActive = false;
+      setTimeout(() => { void watchDockerEvents(); }, 1000);
+    });
+  } catch (error) {
+    console.error('[docker] Failed to start event stream:', error);
+    eventStreamActive = false;
+  }
+}
+
+/**
+ * Update a specific container in the cache
+ */
+async function updateContainerInCache(containerId: string, containerName: string) {
+  try {
+    const fullInfo = await docker.getContainer(containerId).inspect();
+    const networks = fullInfo.NetworkSettings.Networks as Record<string, { IPAddress?: string }>;
+
+    containerCache.set(containerName, {
+      id: containerId,
+      name: containerName,
+      state: fullInfo.State.Status,
+      health: fullInfo.State.Health?.Status ?? null,
+      networks,
+      updatedAt: Date.now(),
+    });
+  } catch (error) {
+    // Container might have been removed
+    containerCache.delete(containerName);
+  }
+}
+
+/**
+ * Get cached container info
+ */
+export function getCachedContainer(containerName: string): CachedContainer | undefined {
+  return containerCache.get(containerName);
 }
 
 /**
@@ -62,6 +199,24 @@ interface DockerNetwork {
  * Get the IP address of a container on a specific network
  */
 export async function getContainerIP(containerName: string, networkName = 'servarr_media') {
+  // Try cache first
+  const cached = getCachedContainer(containerName);
+  if (cached !== undefined) {
+    // Try the specified network first
+    const specifiedNetwork = cached.networks[networkName];
+    if (specifiedNetwork?.IPAddress !== undefined && specifiedNetwork.IPAddress.length > 0) {
+      return specifiedNetwork.IPAddress;
+    }
+
+    // Fall back to any available network
+    for (const net of Object.values(cached.networks)) {
+      if (net.IPAddress !== undefined && net.IPAddress.length > 0) {
+        return net.IPAddress;
+      }
+    }
+  }
+
+  // Fallback to direct API call if not in cache
   try {
     const container = docker.getContainer(containerName);
     const info = await container.inspect();
