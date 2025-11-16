@@ -96,6 +96,18 @@ interface BaseProbeResult {
 }
 
 /**
+ * Safely parse JSON and extract a typed value
+ */
+function parseJson<T>(json: string, extractor: (data: unknown) => T | null): T | null {
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    return extractor(parsed);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Generic probe for *arr services (Sonarr, Radarr, Prowlarr, Bazarr)
  */
 async function probeArrService(name: string, url: string | undefined, headers: Array<string>, apiVersion = 'v3') {
@@ -103,70 +115,54 @@ async function probeArrService(name: string, url: string | undefined, headers: A
 
   const status = await httpGet(`${url}/api/${apiVersion}/system/status`, { headers });
   const ok = status.ok;
-  let version = '';
-
-  if (ok) {
-    try {
-      const parsed = JSON.parse(status.out) as { version?: unknown };
-      version = typeof parsed.version === 'string' ? parsed.version : '';
-    } catch {
-      // Ignore parse errors
-    }
-  }
+  const version = ok ? parseJson(status.out, (data) =>
+    typeof (data as { version?: unknown }).version === 'string'
+      ? (data as { version: string }).version
+      : null
+  ) ?? '' : '';
 
   return { name, url, ok, version, http: ok ? 200 : 0 };
 }
 
-export interface SonarrProbeResult extends BaseProbeResult {
+export interface ArrQueueProbeResult extends BaseProbeResult {
   queue?: number;
+}
+
+export type SonarrProbeResult = ArrQueueProbeResult;
+export type RadarrProbeResult = ArrQueueProbeResult;
+
+/**
+ * Generic probe for *arr services with queue info (Sonarr/Radarr)
+ */
+async function probeArrWithQueue(name: string, url: string | undefined, apiKey: string | null, apiVersion = 'v3'): Promise<ArrQueueProbeResult> {
+  if (url === undefined) return { name, ok: false, reason: 'container not found' };
+
+  const headers = arrHeaders(apiKey);
+  const base = await probeArrService(name, url, headers, apiVersion);
+  if (!base.ok) return base;
+
+  const queue = await httpGet(`${url}/api/${apiVersion}/queue?page=1&pageSize=1`, { headers });
+  const count = parseJson(queue.out, (data) =>
+    typeof (data as { totalRecords?: unknown }).totalRecords === 'number'
+      ? (data as { totalRecords: number }).totalRecords
+      : null
+  ) ?? 0;
+
+  return { ...base, queue: count };
 }
 
 /**
  * Probe Sonarr with queue info
  */
 export async function probeSonarr(url: string | undefined, apiKey: string | null): Promise<SonarrProbeResult> {
-  if (url === undefined) return { name: 'Sonarr', ok: false, reason: 'container not found' };
-
-  const headers = arrHeaders(apiKey);
-  const base = await probeArrService('Sonarr', url, headers, 'v3');
-  if (!base.ok) return base;
-
-  const queue = await httpGet(`${url}/api/v3/queue?page=1&pageSize=1`, { headers });
-  let count = 0;
-  try {
-    const data = JSON.parse(queue.out) as { totalRecords?: unknown };
-    count = typeof data.totalRecords === 'number' ? data.totalRecords : 0;
-  } catch {
-    // Ignore parse errors
-  }
-
-  return { ...base, queue: count };
-}
-
-export interface RadarrProbeResult extends BaseProbeResult {
-  queue?: number;
+  return probeArrWithQueue('Sonarr', url, apiKey, 'v3');
 }
 
 /**
  * Probe Radarr with queue info
  */
 export async function probeRadarr(url: string | undefined, apiKey: string | null): Promise<RadarrProbeResult> {
-  if (url === undefined) return { name: 'Radarr', ok: false, reason: 'container not found' };
-
-  const headers = arrHeaders(apiKey);
-  const base = await probeArrService('Radarr', url, headers, 'v3');
-  if (!base.ok) return base;
-
-  const queue = await httpGet(`${url}/api/v3/queue?page=1&pageSize=1`, { headers });
-  let count = 0;
-  try {
-    const data = JSON.parse(queue.out) as { totalRecords?: unknown };
-    count = typeof data.totalRecords === 'number' ? data.totalRecords : 0;
-  } catch {
-    // Ignore parse errors
-  }
-
-  return { ...base, queue: count };
+  return probeArrWithQueue('Radarr', url, apiKey, 'v3');
 }
 
 export interface ProwlarrProbeResult extends BaseProbeResult {
@@ -184,13 +180,11 @@ export async function probeProwlarr(url: string | undefined, apiKey: string | nu
   if (!base.ok) return base;
 
   const indexers = await httpGet(`${url}/api/v1/indexer`, { headers });
-  let active = 0;
-  try {
-    const parsed = JSON.parse(indexers.out) as Array<unknown>;
-    active = Array.isArray(parsed) ? parsed.filter(i => (i as { enable?: unknown }).enable === true).length : 0;
-  } catch {
-    // Ignore parse errors
-  }
+  const active = parseJson(indexers.out, (data) =>
+    Array.isArray(data)
+      ? data.filter(i => (i as { enable?: unknown }).enable === true).length
+      : null
+  ) ?? 0;
 
   return { ...base, indexers: active };
 }
@@ -198,7 +192,7 @@ export async function probeProwlarr(url: string | undefined, apiKey: string | nu
 export type BazarrProbeResult = BaseProbeResult;
 
 /**
- * Probe Bazarr
+ * Probe Bazarr (uses different header name than *arr services)
  */
 export async function probeBazarr(url: string | undefined, apiKey: string | null): Promise<BazarrProbeResult> {
   if (url === undefined) return { name: 'Bazarr', ok: false, reason: 'container not found' };
@@ -206,16 +200,11 @@ export async function probeBazarr(url: string | undefined, apiKey: string | null
   const headers = apiKey !== null ? [`X-API-KEY: ${apiKey}`] : [];
   const status = await httpGet(`${url}/api/system/status`, { headers });
   const ok = status.ok;
-  let version = '';
-
-  if (ok) {
-    try {
-      const parsed = JSON.parse(status.out) as { version?: unknown };
-      version = typeof parsed.version === 'string' ? parsed.version : '';
-    } catch {
-      // Ignore parse errors
-    }
-  }
+  const version = ok ? parseJson(status.out, (data) =>
+    typeof (data as { version?: unknown }).version === 'string'
+      ? (data as { version: string }).version
+      : null
+  ) ?? '' : '';
 
   return { name: 'Bazarr', url, ok, version, http: ok ? 200 : 0 };
 }
@@ -308,16 +297,11 @@ export async function probeFlare(url: string | undefined): Promise<FlareProbeRes
 
   const result = await httpPost(`${url}/v1`, { cmd: 'sessions.list' });
   const ok = result.ok;
-  let sessions = 0;
-
-  if (ok) {
-    try {
-      const data = JSON.parse(result.out) as { sessions?: unknown };
-      sessions = Array.isArray(data.sessions) ? data.sessions.length : 0;
-    } catch {
-      // Ignore parse errors
-    }
-  }
+  const sessions = ok ? parseJson(result.out, (data) =>
+    Array.isArray((data as { sessions?: unknown }).sessions)
+      ? (data as { sessions: unknown[] }).sessions.length
+      : null
+  ) ?? 0 : 0;
 
   return { name: 'FlareSolverr', url, ok, sessions, http: ok ? 200 : 0 };
 }
@@ -560,40 +544,27 @@ async function fetchQbitStats(url: string, cookie: string) {
     httpGet(`${url}/api/v2/app/preferences`, { headers, timeout: 4 }),
   ]);
 
-  let dl: number | null = null;
-  let up: number | null = null;
-  let total: number | null = null;
-  let listenPort: number | null = null;
+  const dl = transfer.ok ? parseJson(transfer.out, (data) =>
+    typeof (data as { dl_info_speed?: unknown }).dl_info_speed === 'number'
+      ? (data as { dl_info_speed: number }).dl_info_speed
+      : null
+  ) : null;
 
-  if (transfer.ok) {
-    try {
-      const data = JSON.parse(transfer.out) as { dl_info_speed?: unknown; up_info_speed?: unknown };
-      dl = typeof data.dl_info_speed === 'number' ? data.dl_info_speed : null;
-      up = typeof data.up_info_speed === 'number' ? data.up_info_speed : null;
-    } catch {
-      // Ignore parse errors
-    }
-  }
+  const up = transfer.ok ? parseJson(transfer.out, (data) =>
+    typeof (data as { up_info_speed?: unknown }).up_info_speed === 'number'
+      ? (data as { up_info_speed: number }).up_info_speed
+      : null
+  ) : null;
 
-  if (torrents.ok) {
-    try {
-      const list = JSON.parse(torrents.out) as unknown;
-      total = Array.isArray(list) ? list.length : null;
-    } catch {
-      // Ignore parse errors
-    }
-  }
+  const total = torrents.ok ? parseJson(torrents.out, (data) =>
+    Array.isArray(data) ? data.length : null
+  ) : null;
 
-  if (prefs.ok) {
-    try {
-      const pref = JSON.parse(prefs.out) as { listen_port?: unknown };
-      if (typeof pref.listen_port === 'number') {
-        listenPort = pref.listen_port;
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
+  const listenPort = prefs.ok ? parseJson(prefs.out, (data) =>
+    typeof (data as { listen_port?: unknown }).listen_port === 'number'
+      ? (data as { listen_port: number }).listen_port
+      : null
+  ) : null;
 
   if (dl === null && up === null && total === null && listenPort === null) {
     return null;
@@ -625,21 +596,25 @@ async function checkArrDownloadClients(label: string, url: string | undefined, a
     return { name: label, ok: false, detail: response.err ?? (response.out.length > 0 ? response.out : 'request failed') };
   }
 
-  try {
-    const clients = JSON.parse(response.out) as Array<unknown>;
-    const enabled = Array.isArray(clients) ? clients.filter(client => (client as { enable?: unknown }).enable === true) : [];
-    const detail = enabled.length > 0
-      ? `enabled: ${summarizeNames(enabled)}`
-      : 'no enabled clients';
+  const enabled = parseJson(response.out, (data) =>
+    Array.isArray(data)
+      ? data.filter(client => (client as { enable?: unknown }).enable === true)
+      : null
+  );
 
-    return {
-      name: label,
-      ok: enabled.length > 0,
-      detail,
-    };
-  } catch {
+  if (enabled === null) {
     return { name: label, ok: false, detail: 'failed to parse response' };
   }
+
+  const detail = enabled.length > 0
+    ? `enabled: ${summarizeNames(enabled)}`
+    : 'no enabled clients';
+
+  return {
+    name: label,
+    ok: enabled.length > 0,
+    detail,
+  };
 }
 
 export async function checkSonarrDownloadClients(url: string | undefined, apiKey: string | null): Promise<CheckResult> {
@@ -661,21 +636,25 @@ export async function checkProwlarrIndexers(url: string | undefined, apiKey: str
     return { name, ok: false, detail: response.err ?? (response.out.length > 0 ? response.out : 'request failed') };
   }
 
-  try {
-    const indexers = JSON.parse(response.out) as Array<unknown>;
-    const enabled = Array.isArray(indexers) ? indexers.filter(indexer => (indexer as { enable?: unknown }).enable === true) : [];
-    const detail = enabled.length > 0
-      ? `enabled: ${summarizeNames(enabled)}`
-      : 'no enabled indexers';
+  const enabled = parseJson(response.out, (data) =>
+    Array.isArray(data)
+      ? data.filter(indexer => (indexer as { enable?: unknown }).enable === true)
+      : null
+  );
 
-    return {
-      name,
-      ok: enabled.length > 0,
-      detail,
-    };
-  } catch {
+  if (enabled === null) {
     return { name, ok: false, detail: 'failed to parse response' };
   }
+
+  const detail = enabled.length > 0
+    ? `enabled: ${summarizeNames(enabled)}`
+    : 'no enabled indexers';
+
+  return {
+    name,
+    ok: enabled.length > 0,
+    detail,
+  };
 }
 
 /**
