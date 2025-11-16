@@ -63,7 +63,7 @@ async function loadHealth() {
     }
 
     // Update VPN section - hide if VPN is disabled
-    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(5)');
+    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(4)');
     const vpnDivEl = document.getElementById('vpn');
 
     if (vpnSectionEl !== null && vpnDivEl !== null) {
@@ -85,7 +85,7 @@ async function loadHealth() {
     }
 
     // Update checks section
-    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(7)');
+    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(6)');
     const checksDivEl = document.getElementById('checks');
 
     if (checksSectionEl !== null && checksDivEl !== null) {

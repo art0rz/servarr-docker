@@ -12,6 +12,7 @@ const API_FILES = {
   sonarr: 'sonarr/config.xml',
   radarr: 'radarr/config.xml',
   prowlarr: 'prowlarr/config.xml',
+  bazarr: 'bazarr/config/config.ini',
 } as const;
 
 const CACHE_TTL_MS = 60 * 1000;
@@ -30,6 +31,35 @@ async function readXmlValue(relPath: string, tag: string) {
   }
 }
 
+async function readIniValue(relPath: string, section: string, key: string) {
+  const filePath = join(CONFIG_ROOT, relPath);
+  try {
+    const raw = await readFile(filePath, 'utf-8');
+    const lines = raw.split(/\r?\n/);
+    let inSection = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === `[${section}]`) {
+        inSection = true;
+        continue;
+      }
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        inSection = false;
+        continue;
+      }
+      if (inSection && trimmed.startsWith(key)) {
+        const parts = trimmed.split('=', 2);
+        if (parts.length === 2 && parts[1] !== undefined) {
+          return parts[1].trim();
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export type ArrApiKeys = Record<string, string | null>;
 
 export async function loadArrApiKeys() {
@@ -40,7 +70,12 @@ export async function loadArrApiKeys() {
 
   const entries = await Promise.all(
     Object.entries(API_FILES).map(async ([name, relPath]) => {
-      const apiKey = await readXmlValue(relPath, 'ApiKey');
+      let apiKey: string | null;
+      if (name === 'bazarr') {
+        apiKey = await readIniValue(relPath, 'auth', 'apikey');
+      } else {
+        apiKey = await readXmlValue(relPath, 'ApiKey');
+      }
       return [name, apiKey] as const;
     })
   );

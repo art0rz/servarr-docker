@@ -200,10 +200,11 @@ export type BazarrProbeResult = BaseProbeResult;
 /**
  * Probe Bazarr
  */
-export async function probeBazarr(url: string | undefined): Promise<BazarrProbeResult> {
+export async function probeBazarr(url: string | undefined, apiKey: string | null): Promise<BazarrProbeResult> {
   if (url === undefined) return { name: 'Bazarr', ok: false, reason: 'container not found' };
 
-  const status = await httpGet(`${url}/api/system/status`);
+  const headers = apiKey !== null ? { 'X-API-KEY': apiKey } : {};
+  const status = await httpGet(`${url}/api/system/status`, headers);
   const ok = status.ok;
   let version = '';
 
@@ -440,7 +441,7 @@ export async function probeRecyclarr(): Promise<RecyclarrProbeResult> {
   }
 
   // Get logs from last 24 hours
-  const logsText = await getContainerLogs('recyclarr', '24h');
+  const logsText = await getContainerLogs('recyclarr');
 
   if (logsText.length === 0) {
     return { name, ok: false, reason: 'failed to read logs' };

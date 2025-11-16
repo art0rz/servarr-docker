@@ -207,7 +207,7 @@ async function updateServicesSection() {
     timedProbe('Sonarr', probeSonarr(urls['sonarr'], apiKeys['sonarr'] ?? null)),
     timedProbe('Radarr', probeRadarr(urls['radarr'], apiKeys['radarr'] ?? null)),
     timedProbe('Prowlarr', probeProwlarr(urls['prowlarr'], apiKeys['prowlarr'] ?? null)),
-    timedProbe('Bazarr', probeBazarr(urls['bazarr'])),
+    timedProbe('Bazarr', probeBazarr(urls['bazarr'], apiKeys['bazarr'] ?? null)),
     timedProbe('qBittorrent', probeQbit(qbitUrl, qbitAuth)),
     timedProbe('Cross-Seed', probeCrossSeed(urls['cross-seed'])),
     timedProbe('FlareSolverr', probeFlare(urls['flaresolverr'])),
