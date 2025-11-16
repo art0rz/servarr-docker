@@ -13,7 +13,11 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "type-check": "tsc --noEmit && tsc --project tsconfig.client.json --noEmit",
-    "check": "npm run lint && npm run type-check"
+    "check": "npm run lint && npm run type-check",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "chart.js": "^4.5.1",
@@ -26,11 +30,14 @@
     "@types/dockerode": "^3.3.46",
     "@types/express": "^5.0.5",
     "@types/node": "^24.10.1",
+    "@vitest/ui": "^4.0.9",
     "eslint": "^9.39.1",
+    "happy-dom": "^20.0.10",
     "jiti": "^2.6.1",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.2"
+    "vite": "^7.2.2",
+    "vitest": "^4.0.9"
   }
 }

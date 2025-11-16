@@ -62,9 +62,9 @@ export function renderServiceCard(service: ServiceProbeResult): string {
       <div class="status ${ok ? 'ok' : 'fail'}">
         ${ok ? 'OK' : 'FAIL'}
       </div>
-      <div><strong>${service.name.length > 0 ? service.name : 'Unknown'}</strong></div>
+      <div><strong>${escapeHtml(service.name.length > 0 ? service.name : 'Unknown')}</strong></div>
       ${service.url !== undefined ? `<div class="tag">
-        <a href="${service.url}" target="_blank" rel="noreferrer">${service.url}</a>
+        <a href="${escapeHtml(service.url)}" target="_blank" rel="noreferrer">${escapeHtml(service.url)}</a>
       </div>` : ''}
       ${extras.length > 0 ? `<div class="tag">${extras.join(' • ')}</div>` : ''}
       ${service.reason !== undefined ? `<div class="tag" style="color: #f85149;">Reason: ${escapeHtml(service.reason)}</div>` : ''}
