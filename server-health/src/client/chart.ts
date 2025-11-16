@@ -1,4 +1,5 @@
 import { Chart, LineController, LineElement, PointElement, LinearScale, TimeScale, Title, Tooltip, Legend, Filler, type ChartConfiguration } from 'chart.js';
+import 'chartjs-adapter-date-fns';
 import type { ChartDataPoint } from './types';
 
 // Register Chart.js components
@@ -48,10 +49,29 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        intersect: false,
+        mode: 'index',
+      },
       scales: {
         x: {
-          type: 'linear',
-          display: false,
+          type: 'time',
+          time: {
+            displayFormats: {
+              minute: 'HH:mm',
+              hour: 'HH:mm',
+              day: 'MMM d',
+            },
+          },
+          ticks: {
+            color: '#c9d1d9',
+            maxRotation: 0,
+            autoSkip: true,
+            autoSkipPadding: 20,
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+          },
         },
         y: {
           type: 'linear',
@@ -111,10 +131,29 @@ export function initLoadChart(canvasElement: HTMLCanvasElement) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        intersect: false,
+        mode: 'index',
+      },
       scales: {
         x: {
-          type: 'linear',
-          display: false,
+          type: 'time',
+          time: {
+            displayFormats: {
+              minute: 'HH:mm',
+              hour: 'HH:mm',
+              day: 'MMM d',
+            },
+          },
+          ticks: {
+            color: '#c9d1d9',
+            maxRotation: 0,
+            autoSkip: true,
+            autoSkipPadding: 20,
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+          },
         },
         y: {
           type: 'linear',
@@ -165,10 +204,29 @@ export function initResponseTimeChart(canvasElement: HTMLCanvasElement) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        intersect: false,
+        mode: 'index',
+      },
       scales: {
         x: {
-          type: 'linear',
-          display: false,
+          type: 'time',
+          time: {
+            displayFormats: {
+              minute: 'HH:mm',
+              hour: 'HH:mm',
+              day: 'MMM d',
+            },
+          },
+          ticks: {
+            color: '#c9d1d9',
+            maxRotation: 0,
+            autoSkip: true,
+            autoSkipPadding: 20,
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+          },
         },
         y: {
           type: 'linear',
@@ -282,19 +340,26 @@ export function updateCharts(data: Array<ChartDataPoint>) {
 
   const aggregated = aggregateData(data, currentResolution);
 
-  // Convert data to Chart.js format
-  const downloadData = aggregated.map((point, index) => ({
-    x: index,
+  // Calculate time range for x-axis bounds
+  const now = Date.now();
+  const timeRange = currentResolution === '1h' ? 3600000 :
+                    currentResolution === '1d' ? 86400000 :
+                    currentResolution === '1w' ? 604800000 : 2592000000;
+  const minTime = now - timeRange;
+
+  // Convert data to Chart.js format with timestamps
+  const downloadData = aggregated.map((point) => ({
+    x: point.timestamp,
     y: point.downloadRate / 1024 / 1024, // Convert bytes to MB
   }));
 
-  const uploadData = aggregated.map((point, index) => ({
-    x: index,
+  const uploadData = aggregated.map((point) => ({
+    x: point.timestamp,
     y: point.uploadRate / 1024 / 1024, // Convert bytes to MB
   }));
 
-  const loadData = aggregated.map((point, index) => ({
-    x: index,
+  const loadData = aggregated.map((point) => ({
+    x: point.timestamp,
     y: point.load1, // 1-minute load average
   }));
 
@@ -307,6 +372,17 @@ export function updateCharts(data: Array<ChartDataPoint>) {
     downloadDataset.data = downloadData;
     uploadDataset.data = uploadData;
     loadDataset.data = loadData;
+
+    // Update x-axis bounds
+    if (networkChartInstance.options.scales?.x !== undefined) {
+      networkChartInstance.options.scales.x.min = minTime;
+      networkChartInstance.options.scales.x.max = now;
+    }
+    if (loadChartInstance.options.scales?.x !== undefined) {
+      loadChartInstance.options.scales.x.min = minTime;
+      loadChartInstance.options.scales.x.max = now;
+    }
+
     networkChartInstance.update('none');
     loadChartInstance.update('none');
   }
@@ -324,8 +400,8 @@ export function updateCharts(data: Array<ChartDataPoint>) {
     const color = serviceColors[service] ?? { border: 'rgb(100, 100, 100)', background: 'rgba(100, 100, 100, 0.2)' };
     return {
       label: service,
-      data: aggregated.map((point, index) => ({
-        x: index,
+      data: aggregated.map((point) => ({
+        x: point.timestamp,
         y: point.responseTimes[service] ?? 0,
       })),
       borderColor: color.border,
@@ -336,5 +412,12 @@ export function updateCharts(data: Array<ChartDataPoint>) {
   });
 
   responseTimeChartInstance.data.datasets = responseTimeDatasets;
+
+  // Update x-axis bounds
+  if (responseTimeChartInstance.options.scales?.x !== undefined) {
+    responseTimeChartInstance.options.scales.x.min = minTime;
+    responseTimeChartInstance.options.scales.x.max = now;
+  }
+
   responseTimeChartInstance.update('none');
 }
