@@ -4,9 +4,9 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_ROOT = join(__dirname, '..', '..', 'config');
-const DEFAULT_MEDIA_ROOT = '/data/media';
+const DEFAULT_MEDIA_DIR = '/data/media';
 export const CONFIG_ROOT = process.env['CONFIG_ROOT'] ?? DEFAULT_CONFIG_ROOT;
-export const MEDIA_ROOT = process.env['MEDIA_ROOT'] ?? DEFAULT_MEDIA_ROOT;
+export const MEDIA_DIR = process.env['MEDIA_DIR'] ?? DEFAULT_MEDIA_DIR;
 
 const API_FILES = {
   sonarr: 'sonarr/config.xml',

@@ -300,7 +300,7 @@ services:
       - PORT=3000
       - TZ=${TZ}
       - USE_VPN=${USE_VPN:-true}
-      - ${MEDIA_ROOT}:${MEDIA_DIR}:rshared
+      - MEDIA_DIR=${MEDIA_DIR}
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-servarr}
       - SONARR_PORT=${SONARR_PORT:-8989}
       - RADARR_PORT=${RADARR_PORT:-7878}
@@ -313,6 +313,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config:/config:ro
+      - ${MEDIA_DIR}:${MEDIA_DIR}:ro
     ports:
       - "${HEALTH_PORT:-3000}:3000"
     restart: unless-stopped

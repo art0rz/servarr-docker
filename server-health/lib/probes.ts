@@ -1,5 +1,5 @@
 import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer, getContainerImageAge } from './docker';
-import { loadCrossSeedStats, MEDIA_ROOT, type QbitCredentials } from './config';
+import { loadCrossSeedStats, MEDIA_DIR, type QbitCredentials } from './config';
 
 interface HttpOptions {
   headers?: Array<string>;
@@ -721,7 +721,7 @@ export async function checkDiskUsage() {
   try {
     // Check disk usage on the media directory
     const { statfs } = await import('node:fs/promises');
-    const stats = await statfs(MEDIA_ROOT);
+    const stats = await statfs(MEDIA_DIR);
 
     const total = stats.blocks * stats.bsize;
     const available = stats.bavail * stats.bsize;
