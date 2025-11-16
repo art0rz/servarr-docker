@@ -314,6 +314,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config:/config:ro
       - ${MEDIA_DIR}:${MEDIA_DIR}:ro
+      - gluetun-tmp:/tmp/gluetun:ro
     ports:
       - "${HEALTH_PORT:-3000}:3000"
     restart: unless-stopped

@@ -1,4 +1,4 @@
-import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer, getContainerImageAge } from './docker';
+import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, getContainerImageAge, getCachedGluetunPort } from './docker';
 import { loadCrossSeedStats, MEDIA_DIR, type QbitCredentials } from './config';
 
 interface HttpOptions {
@@ -373,10 +373,12 @@ export async function probeGluetun(): Promise<GluetunProbeResult> {
   const pfEnv = env['VPN_PORT_FORWARDING'] ?? env['PORT_FORWARDING'] ?? '';
   const pfExpected = pfEnv.toLowerCase() === 'on';
 
-  const [healthy, running, forwardedPort, uiMap, ip] = await Promise.all([
+  // Get cached forwarded port (no need to exec into container)
+  const forwardedPort = getCachedGluetunPort();
+
+  const [healthy, running, uiMap, ip] = await Promise.all([
     dockerInspect('.State.Health.Status', name),
     dockerInspect('.State.Running', name),
-    readFileFromContainer(name, '/tmp/gluetun/forwarded_port'),
     dockerInspect(`.NetworkSettings.Ports["8080/tcp"]`, name),
     getEgressIP(name).catch(() => ''),
   ]);

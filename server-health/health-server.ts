@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 
 import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles } from './lib/config';
-import { watchDockerEvents } from './lib/docker';
+import { watchDockerEvents, watchGluetunPort } from './lib/docker';
 import { getLoadAverage } from './lib/system';
 import {
   probeGluetun,
@@ -298,6 +298,11 @@ watchConfigFiles();
 
 // Start Docker event watcher
 void watchDockerEvents();
+
+// Start Gluetun forwarded port watcher (only if VPN is enabled)
+if (USE_VPN) {
+  void watchGluetunPort();
+}
 
 startWatcher('vpn', updateVpnSection, HEALTH_INTERVAL_MS);
 startWatcher('services', updateServicesSection, HEALTH_INTERVAL_MS);

@@ -1,5 +1,9 @@
 import Docker from 'dockerode';
 import type { Readable } from 'node:stream';
+import { readFile, watch as fsWatch } from 'node:fs';
+import { promisify } from 'node:util';
+
+const readFileAsync = promisify(readFile);
 
 // Create Docker client instance
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -16,6 +20,10 @@ interface CachedContainer {
 
 const containerCache = new Map<string, CachedContainer>();
 let eventStreamActive = false;
+
+// Gluetun forwarded port cache
+let cachedForwardedPort = '';
+const GLUETUN_PORT_FILE = '/tmp/gluetun/forwarded_port';
 
 export interface CommandResult {
   ok: boolean;
@@ -144,6 +152,59 @@ async function updateContainerInCache(containerId: string, containerName: string
  */
 export function getCachedContainer(containerName: string): CachedContainer | undefined {
   return containerCache.get(containerName);
+}
+
+/**
+ * Read and cache the Gluetun forwarded port
+ */
+async function readGluetunPort() {
+  try {
+    const content = await readFileAsync(GLUETUN_PORT_FILE, 'utf-8');
+    const port = content.trim();
+
+    // Validate it's a number
+    if (/^\d+$/.test(port)) {
+      cachedForwardedPort = port;
+      console.log(`[docker] Gluetun forwarded port updated: ${port}`);
+    } else {
+      cachedForwardedPort = '';
+      console.log('[docker] Gluetun forwarded port file contains invalid data');
+    }
+  } catch (error) {
+    // File doesn't exist yet or can't be read
+    cachedForwardedPort = '';
+  }
+}
+
+/**
+ * Watch the Gluetun forwarded port file
+ */
+export async function watchGluetunPort() {
+  console.log('[docker] Setting up Gluetun forwarded port watcher');
+
+  // Initial read
+  await readGluetunPort();
+
+  try {
+    const watcher = fsWatch(GLUETUN_PORT_FILE, { persistent: false }, (eventType) => {
+      if (eventType === 'change') {
+        void readGluetunPort();
+      }
+    });
+
+    watcher.on('error', (error) => {
+      console.error(`[docker] Error watching ${GLUETUN_PORT_FILE}:`, error);
+    });
+  } catch (error) {
+    console.error(`[docker] Failed to watch ${GLUETUN_PORT_FILE}:`, error);
+  }
+}
+
+/**
+ * Get cached Gluetun forwarded port
+ */
+export function getCachedGluetunPort(): string {
+  return cachedForwardedPort;
 }
 
 /**
