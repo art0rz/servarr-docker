@@ -161,6 +161,22 @@ function broadcastToClients(message: unknown) {
 }
 
 function publish(partial: Partial<HealthCache>) {
+  // Check if data actually changed before broadcasting
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { chartData, updatedAt, updating, error, gitRef, ...newData } = partial;
+
+  // Compare new data with current cache (deep comparison)
+  let hasChanges = false;
+  const changedKeys: string[] = [];
+  for (const [key, value] of Object.entries(newData)) {
+    const currentValue = healthCache[key as keyof HealthCache];
+    if (JSON.stringify(currentValue) !== JSON.stringify(value)) {
+      hasChanges = true;
+      changedKeys.push(key);
+    }
+  }
+
+  // Update local cache
   healthCache = {
     ...healthCache,
     ...partial,
@@ -170,13 +186,18 @@ function publish(partial: Partial<HealthCache>) {
     gitRef: GIT_REF,
   };
 
-  // Broadcast update to WebSocket clients (exclude chartData for health updates)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { chartData, ...updateData } = partial;
-  broadcastToClients({
-    type: 'health',
-    data: updateData,
-  });
+  // Only broadcast if data actually changed
+  if (hasChanges && wsClients.size > 0) {
+    console.log(`[ws] Broadcasting changes: ${changedKeys.join(', ')} to ${wsClients.size} client(s)`);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { chartData: _, ...updateData } = partial;
+    broadcastToClients({
+      type: 'health',
+      data: updateData,
+    });
+  } else if (hasChanges && wsClients.size === 0) {
+    console.log(`[ws] Changes detected (${changedKeys.join(', ')}) but no clients connected`);
+  }
 }
 
 function startWatcher(name: string, fn: () => Promise<void>, interval: number) {
@@ -261,10 +282,14 @@ async function updateServicesSection() {
 
   // Broadcast services update and new chart point separately
   publish({ services });
-  broadcastToClients({
-    type: 'chartPoint',
-    data: newDataPoint,
-  });
+
+  // Only broadcast chart point if there are connected clients
+  if (wsClients.size > 0) {
+    broadcastToClients({
+      type: 'chartPoint',
+      data: newDataPoint,
+    });
+  }
 }
 
 async function updateChecksSection() {
