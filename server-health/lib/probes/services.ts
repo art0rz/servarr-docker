@@ -1,111 +1,23 @@
-import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, getContainerImageAge, getCachedGluetunPort } from './docker';
-import { loadCrossSeedStats, MEDIA_DIR, type QbitCredentials } from './config';
-
-interface HttpOptions {
-  headers?: Array<string>;
-  timeout?: number;
-}
-
-function arrHeaders(apiKey: string | null) {
-  return apiKey !== null ? [`X-Api-Key: ${apiKey}`] : [];
-}
-
-function qbitHeaders(baseUrl: string, extras: Array<string> = []) {
-  return [`Referer: ${baseUrl}/`, `Origin: ${baseUrl}`, ...extras];
-}
-
 /**
- * Convert header array to Headers object
+ * Service health probe functions
  */
-function buildHeaders(headerList: Array<string> = []) {
-  const headers = new Headers();
-  for (const header of headerList) {
-    const separatorIndex = header.indexOf(':');
-    if (separatorIndex > 0) {
-      const key = header.slice(0, separatorIndex).trim();
-      const value = header.slice(separatorIndex + 1).trim();
-      headers.set(key, value);
-    }
-  }
-  return headers;
-}
 
-/**
- * Core HTTP request function shared by GET and POST
- */
-async function httpRequest(
-  url: string,
-  method: 'GET' | 'POST',
-  options: HttpOptions = {},
-  body?: string
-) {
-  const timeout = (options.timeout ?? (method === 'GET' ? 3 : 4)) * 1000;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => { controller.abort(); }, timeout);
-
-  try {
-    const headers = buildHeaders(options.headers);
-
-    const response = await fetch(url, {
-      method,
-      headers,
-      ...(body !== undefined ? { body } : {}),
-      signal: controller.signal,
-    });
-
-    const text = await response.text();
-
-    if (response.ok) {
-      return { ok: true, out: text };
-    } else {
-      return { ok: false, out: '', err: text };
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      out: '',
-      err: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-/**
- * Make a GET request using native fetch
- */
-async function httpGet(url: string, options: HttpOptions = {}) {
-  return httpRequest(url, 'GET', options);
-}
-
-/**
- * Make a POST request using native fetch
- */
-async function httpPost(url: string, body: unknown, options: HttpOptions = {}) {
-  const headers = ['Content-Type: application/json', ...(options.headers ?? [])];
-  return httpRequest(url, 'POST', { ...options, headers }, JSON.stringify(body));
-}
-
-interface BaseProbeResult {
-  name: string;
-  url?: string;
-  ok: boolean;
-  reason?: string;
-  version?: string;
-  http?: number;
-}
-
-/**
- * Safely parse JSON and extract a typed value
- */
-function parseJson<T>(json: string, extractor: (data: unknown) => T | null): T | null {
-  try {
-    const parsed = JSON.parse(json) as unknown;
-    return extractor(parsed);
-  } catch {
-    return null;
-  }
-}
+import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, getCachedGluetunPort } from '../docker';
+import { loadCrossSeedStats, type QbitCredentials } from '../config';
+import { httpGet, httpPost, arrHeaders, qbitHeaders, buildHeaders, parseJson } from './http';
+import type {
+  ArrQueueProbeResult,
+  SonarrProbeResult,
+  RadarrProbeResult,
+  ProwlarrProbeResult,
+  BazarrProbeResult,
+  QbitProbeResult,
+  FlareProbeResult,
+  CrossSeedProbeResult,
+  GluetunProbeResult,
+  QbitEgressProbeResult,
+  RecyclarrProbeResult,
+} from './types';
 
 /**
  * Generic probe for *arr services (Sonarr, Radarr, Prowlarr, Bazarr)
@@ -123,13 +35,6 @@ async function probeArrService(name: string, url: string | undefined, headers: A
 
   return { name, url, ok, version, http: ok ? 200 : 0 };
 }
-
-export interface ArrQueueProbeResult extends BaseProbeResult {
-  queue?: number;
-}
-
-export type SonarrProbeResult = ArrQueueProbeResult;
-export type RadarrProbeResult = ArrQueueProbeResult;
 
 /**
  * Generic probe for *arr services with queue info (Sonarr/Radarr)
@@ -165,10 +70,6 @@ export async function probeRadarr(url: string | undefined, apiKey: string | null
   return probeArrWithQueue('Radarr', url, apiKey, 'v3');
 }
 
-export interface ProwlarrProbeResult extends BaseProbeResult {
-  indexers?: number;
-}
-
 /**
  * Probe Prowlarr with indexer count
  */
@@ -189,8 +90,6 @@ export async function probeProwlarr(url: string | undefined, apiKey: string | nu
   return { ...base, indexers: active };
 }
 
-export type BazarrProbeResult = BaseProbeResult;
-
 /**
  * Probe Bazarr (uses different header name than *arr services)
  */
@@ -207,13 +106,6 @@ export async function probeBazarr(url: string | undefined, apiKey: string | null
   ) ?? '' : '';
 
   return { name: 'Bazarr', url, ok, version, http: ok ? 200 : 0 };
-}
-
-export interface QbitProbeResult extends BaseProbeResult {
-  dl?: number | null;
-  up?: number | null;
-  total?: number | null;
-  listenPort?: number | null;
 }
 
 /**
@@ -285,10 +177,6 @@ export async function probeQbit(url: string | undefined, auth: QbitCredentials |
   return { name, url, ok: false, reason, http: 0 };
 }
 
-export interface FlareProbeResult extends BaseProbeResult {
-  sessions?: number;
-}
-
 /**
  * Probe FlareSolverr
  */
@@ -304,11 +192,6 @@ export async function probeFlare(url: string | undefined): Promise<FlareProbeRes
   ) ?? 0 : 0;
 
   return { name: 'FlareSolverr', url, ok, sessions, http: ok ? 200 : 0 };
-}
-
-export interface CrossSeedProbeResult extends BaseProbeResult {
-  lastRun?: string | null;
-  torrentsAdded?: number | null;
 }
 
 /**
@@ -334,18 +217,6 @@ export async function probeCrossSeed(url: string | undefined): Promise<CrossSeed
   }
 
   return { name: 'Cross-Seed', url, ok: false, http: 0 };
-}
-
-export interface GluetunProbeResult {
-  name: string;
-  container: string;
-  ok: boolean;
-  running: boolean;
-  healthy: string | null;
-  vpnEgress: string;
-  forwardedPort: string;
-  pfExpected: boolean;
-  uiHostPort: string;
 }
 
 /**
@@ -390,13 +261,6 @@ export async function probeGluetun(): Promise<GluetunProbeResult> {
   };
 }
 
-export interface QbitEgressProbeResult {
-  name: string;
-  container: string;
-  ok: boolean;
-  vpnEgress: string;
-}
-
 /**
  * Check qBittorrent egress IP
  */
@@ -408,10 +272,6 @@ export async function probeQbitEgress(): Promise<QbitEgressProbeResult> {
     ok: ip.length > 0,
     vpnEgress: ip.length > 0 ? ip : '',
   };
-}
-
-export interface RecyclarrProbeResult extends BaseProbeResult {
-  detail?: string;
 }
 
 /**
@@ -458,6 +318,10 @@ export async function probeRecyclarr(): Promise<RecyclarrProbeResult> {
     detail: errorCount === 0 ? 'no errors (24h)' : `${String(errorCount)} error${errorCount !== 1 ? 's' : ''} (24h)`,
   };
 }
+
+// ============================================================================
+// qBittorrent Helper Functions
+// ============================================================================
 
 /**
  * qBittorrent session cookie cache
@@ -571,207 +435,4 @@ async function fetchQbitStats(url: string, cookie: string) {
   }
 
   return { dl, up, total, listenPort };
-}
-
-function summarizeNames(items: Array<unknown>): string {
-  return items
-    .map(item => (item !== null && typeof item === 'object' && 'name' in item && typeof item.name === 'string' ? item.name : null))
-    .filter((name): name is string => name !== null)
-    .join(', ');
-}
-
-export interface CheckResult {
-  name: string;
-  ok: boolean;
-  detail: string;
-}
-
-async function checkArrDownloadClients(label: string, url: string | undefined, apiKey: string | null) {
-  if (url === undefined) return { name: label, ok: false, detail: 'service URL unavailable' };
-  if (apiKey === null) return { name: label, ok: false, detail: 'API key unavailable' };
-
-  const headers = arrHeaders(apiKey);
-  const response = await httpGet(`${url}/api/v3/downloadclient`, { headers, timeout: 4 });
-  if (!response.ok) {
-    return { name: label, ok: false, detail: response.err ?? (response.out.length > 0 ? response.out : 'request failed') };
-  }
-
-  const enabled = parseJson(response.out, (data) =>
-    Array.isArray(data)
-      ? data.filter(client => (client as { enable?: unknown }).enable === true)
-      : null
-  );
-
-  if (enabled === null) {
-    return { name: label, ok: false, detail: 'failed to parse response' };
-  }
-
-  const detail = enabled.length > 0
-    ? `enabled: ${summarizeNames(enabled)}`
-    : 'no enabled clients';
-
-  return {
-    name: label,
-    ok: enabled.length > 0,
-    detail,
-  };
-}
-
-export async function checkSonarrDownloadClients(url: string | undefined, apiKey: string | null): Promise<CheckResult> {
-  return checkArrDownloadClients('Sonarr download clients', url, apiKey);
-}
-
-export async function checkRadarrDownloadClients(url: string | undefined, apiKey: string | null): Promise<CheckResult> {
-  return checkArrDownloadClients('Radarr download clients', url, apiKey);
-}
-
-export async function checkProwlarrIndexers(url: string | undefined, apiKey: string | null): Promise<CheckResult> {
-  const name = 'Prowlarr indexers';
-  if (url === undefined) return { name, ok: false, detail: 'service URL unavailable' };
-  if (apiKey === null) return { name, ok: false, detail: 'API key unavailable' };
-
-  const headers = arrHeaders(apiKey);
-  const response = await httpGet(`${url}/api/v1/indexer`, { headers, timeout: 4 });
-  if (!response.ok) {
-    return { name, ok: false, detail: response.err ?? (response.out.length > 0 ? response.out : 'request failed') };
-  }
-
-  const enabled = parseJson(response.out, (data) =>
-    Array.isArray(data)
-      ? data.filter(indexer => (indexer as { enable?: unknown }).enable === true)
-      : null
-  );
-
-  if (enabled === null) {
-    return { name, ok: false, detail: 'failed to parse response' };
-  }
-
-  const detail = enabled.length > 0
-    ? `enabled: ${summarizeNames(enabled)}`
-    : 'no enabled indexers';
-
-  return {
-    name,
-    ok: enabled.length > 0,
-    detail,
-  };
-}
-
-/**
- * Check pf-sync heartbeat - verify port forwarding sync is working
- */
-export async function checkPfSyncHeartbeat() {
-  const name = 'pf-sync heartbeat';
-
-  // Check if container is running
-  const running = await dockerInspect('.State.Running', 'pf-sync');
-  if (running !== true) {
-    return { name, ok: false, detail: 'container not running' };
-  }
-
-  // Check logs for recent activity (last 5 minutes)
-  const fiveMinutesAgo = Math.floor(Date.now() / 1000 - 300);
-  const logs = await getContainerLogs('pf-sync', String(fiveMinutesAgo));
-
-  if (logs.length === 0) {
-    return { name, ok: false, detail: 'no recent activity (5m)' };
-  }
-
-  // Look for successful port updates or error messages
-  const hasError = /error|fail|fatal/i.test(logs);
-  const hasSuccess = /updated|synced|forwarded|success/i.test(logs);
-
-  if (hasError) {
-    return { name, ok: false, detail: 'errors in recent logs' };
-  }
-
-  if (hasSuccess) {
-    return { name, ok: true, detail: 'active (recent sync detected)' };
-  }
-
-  // No errors but also no explicit success - container is running but quiet
-  return { name, ok: true, detail: 'running (no recent activity)' };
-}
-
-/**
- * Check disk usage for important volumes
- */
-export async function checkDiskUsage() {
-  const name = 'disk usage (media)';
-
-  try {
-    // Check disk usage on the media directory
-    const { statfs } = await import('node:fs/promises');
-    const stats = await statfs(MEDIA_DIR);
-
-    const total = stats.blocks * stats.bsize;
-    const available = stats.bavail * stats.bsize;
-    const used = total - available;
-    const usedPercent = Math.round((used / total) * 100);
-
-    const totalGB = (total / 1024 / 1024 / 1024).toFixed(1);
-    const usedGB = (used / 1024 / 1024 / 1024).toFixed(1);
-    const availableGB = (available / 1024 / 1024 / 1024).toFixed(1);
-    const detail = `${String(usedPercent)}% used (${usedGB}GB / ${totalGB}GB, ${availableGB}GB free)`;
-
-    // Warn if over 85%, error if over 95%
-    if (usedPercent >= 95) {
-      return { name, ok: false, detail: `${detail} - critical` };
-    } else if (usedPercent >= 85) {
-      return { name, ok: false, detail: `${detail} - warning` };
-    }
-
-    return { name, ok: true, detail };
-  } catch (error) {
-    const err = error instanceof Error ? error.message : String(error);
-    return { name, ok: false, detail: `failed to check: ${err}` };
-  }
-}
-
-/**
- * Check Docker image age for key containers
- */
-export async function checkImageAge() {
-  const name = 'image age';
-
-  // Check a few key containers
-  const containersToCheck = ['sonarr', 'radarr', 'qbittorrent', 'gluetun'];
-
-  try {
-    const results = await Promise.all(
-      containersToCheck.map(async (containerName) => {
-        const created = await getContainerImageAge(containerName);
-        if (created === null) return null;
-
-        const createdDate = new Date(created);
-        const ageMs = Date.now() - createdDate.getTime();
-        const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
-
-        return { containerName, ageDays };
-      })
-    );
-
-    const validResults = results.filter((r): r is { containerName: string; ageDays: number } => r !== null);
-
-    if (validResults.length === 0) {
-      return { name, ok: false, detail: 'unable to check any images' };
-    }
-
-    // Find oldest image
-    const oldest = validResults.reduce((max, r) => (r.ageDays > max.ageDays ? r : max));
-
-    // Warn if any image is > 90 days old
-    const hasOld = validResults.some(r => r.ageDays > 90);
-
-    const detail = `oldest: ${oldest.containerName} (${String(oldest.ageDays)}d)`;
-
-    if (hasOld) {
-      return { name, ok: false, detail: `${detail} - update recommended` };
-    }
-
-    return { name, ok: true, detail };
-  } catch (error) {
-    const err = error instanceof Error ? error.message : String(error);
-    return { name, ok: false, detail: `failed to check: ${err}` };
-  }
 }
