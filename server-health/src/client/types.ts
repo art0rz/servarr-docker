@@ -64,10 +64,9 @@ export interface HealthData {
 }
 
 export interface CompactChartData {
-  startTime: number;
-  interval: number;
   dataPoints: number;
   services: Array<string>;
+  timestamps: Array<number>;
   downloadRate: Array<number>;
   uploadRate: Array<number>;
   load1: Array<number>;

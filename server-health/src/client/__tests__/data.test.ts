@@ -14,7 +14,7 @@ function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
     }
 
     result.push({
-      timestamp: compact.startTime + (i * compact.interval),
+      timestamp: compact.timestamps[i] ?? Date.now(),
       downloadRate: compact.downloadRate[i] ?? 0,
       uploadRate: compact.uploadRate[i] ?? 0,
       load1: compact.load1[i] ?? 0,
@@ -30,10 +30,9 @@ describe('Chart Data Processing', () => {
   describe('decompressChartData', () => {
     it('should decompress compact chart data', () => {
       const compact: CompactChartData = {
-        startTime: 1700000000000,
-        interval: 1000,
         dataPoints: 3,
         services: ['Sonarr', 'Radarr'],
+        timestamps: [1700000000000, 1700000001000, 1700000002000],
         downloadRate: [1048576, 2097152, 1572864], // 1MB, 2MB, 1.5MB
         uploadRate: [524288, 1048576, 786432],     // 0.5MB, 1MB, 0.75MB
         load1: [0.5, 0.75, 0.6],
@@ -74,10 +73,9 @@ describe('Chart Data Processing', () => {
 
     it('should handle empty chart data', () => {
       const compact: CompactChartData = {
-        startTime: 0,
-        interval: 1000,
         dataPoints: 0,
         services: [],
+        timestamps: [],
         downloadRate: [],
         uploadRate: [],
         load1: [],
@@ -91,10 +89,9 @@ describe('Chart Data Processing', () => {
 
     it('should handle missing response time data', () => {
       const compact: CompactChartData = {
-        startTime: 1700000000000,
-        interval: 1000,
         dataPoints: 2,
         services: ['Sonarr'],
+        timestamps: [1700000000000, 1700000001000],
         downloadRate: [1048576, 2097152],
         uploadRate: [524288, 1048576],
         load1: [0.5, 0.75],
@@ -110,12 +107,11 @@ describe('Chart Data Processing', () => {
       expect(result[1]?.responseTimes['Sonarr']).toBe(0);
     });
 
-    it('should correctly calculate timestamps with interval', () => {
+    it('should use actual timestamps from server', () => {
       const compact: CompactChartData = {
-        startTime: 1700000000000,
-        interval: 5000, // 5 second intervals
         dataPoints: 3,
         services: [],
+        timestamps: [1700000000000, 1700000005000, 1700000010000], // Irregular 5-second intervals
         downloadRate: [0, 0, 0],
         uploadRate: [0, 0, 0],
         load1: [0, 0, 0],
@@ -131,10 +127,9 @@ describe('Chart Data Processing', () => {
 
     it('should preserve load1 precision', () => {
       const compact: CompactChartData = {
-        startTime: 1700000000000,
-        interval: 1000,
         dataPoints: 2,
         services: [],
+        timestamps: [1700000000000, 1700000001000],
         downloadRate: [0, 0],
         uploadRate: [0, 0],
         load1: [1.23, 4.56],
@@ -151,10 +146,9 @@ describe('Chart Data Processing', () => {
   describe('Chart Data Validation', () => {
     it('should handle data with multiple services', () => {
       const compact: CompactChartData = {
-        startTime: 1700000000000,
-        interval: 1000,
         dataPoints: 1,
         services: ['Sonarr', 'Radarr', 'Prowlarr', 'Bazarr', 'qBittorrent'],
+        timestamps: [1700000000000],
         downloadRate: [0],
         uploadRate: [0],
         load1: [0],

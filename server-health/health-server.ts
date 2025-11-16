@@ -102,13 +102,9 @@ app.get('/api/health', (_req: Request, res: Response) => {
 app.get('/api/charts', (_req: Request, res: Response) => {
   const data = healthCache.chartData;
   if (data.length === 0) {
-    res.json({ startTime: 0, interval: 1000, dataPoints: 0, services: [], downloadRate: [], uploadRate: [], load1: [], responseTimes: {} });
+    res.json({ dataPoints: 0, services: [], timestamps: [], downloadRate: [], uploadRate: [], load1: [], responseTimes: {} });
     return;
   }
-
-  // Delta-encode: just send start time and interval (1000ms)
-  const startTime = data[0]?.timestamp ?? Date.now();
-  const interval = 1000; // 1 second intervals
 
   // Quantize response times to nearest 10ms to reduce size
   const allServices = new Set<string>();
@@ -124,10 +120,10 @@ app.get('/api/charts', (_req: Request, res: Response) => {
   }
 
   res.json({
-    startTime,
-    interval,
     dataPoints: data.length,
     services: Array.from(allServices),
+    // Send actual timestamps from stored data
+    timestamps: data.map(p => p.timestamp),
     // Arrays are more compact than objects
     downloadRate: data.map(p => Math.round(p.downloadRate)),
     uploadRate: data.map(p => Math.round(p.uploadRate)),

@@ -17,7 +17,7 @@ function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
     }
 
     result.push({
-      timestamp: compact.startTime + (i * compact.interval),
+      timestamp: compact.timestamps[i] ?? Date.now(),
       downloadRate: compact.downloadRate[i] ?? 0,
       uploadRate: compact.uploadRate[i] ?? 0,
       load1: compact.load1[i] ?? 0,
