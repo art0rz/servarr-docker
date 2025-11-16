@@ -41,7 +41,8 @@
   },
   "include": [
     "health-server.js",
-    "lib/**/*"
+    "lib/**/*",
+    "*.config.ts"
   ],
   "exclude": [
     "node_modules",

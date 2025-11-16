@@ -1,12 +1,13 @@
+import type { FlatConfig } from 'typescript-eslint';
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
-export default tseslint.config(
+const config: FlatConfig.ConfigArray = [
   {
     ignores: [
       'dist/**',
       'node_modules/**',
-      '*.config.js',
+      'src/client/**',
     ],
   },
   eslint.configs.recommended,
@@ -56,5 +57,7 @@ export default tseslint.config(
         allowNullableObject: false,
       }],
     },
-  }
-);
+  },
+];
+
+export default config;
