@@ -17,7 +17,7 @@ export interface CommandResult {
 /**
  * Inspect a Docker container and extract a specific property path
  */
-export async function dockerInspect(path: string, containerName: string): Promise<unknown> {
+export async function dockerInspect(path: string, containerName: string) {
   try {
     const container = docker.getContainer(containerName);
     const info = await container.inspect();
@@ -40,7 +40,7 @@ export async function dockerInspect(path: string, containerName: string): Promis
 /**
  * Get environment variables from a Docker container
  */
-export async function dockerEnvMap(containerName: string): Promise<Record<string, string>> {
+export async function dockerEnvMap(containerName: string) {
   try {
     const container = docker.getContainer(containerName);
     const info = await container.inspect();
@@ -66,7 +66,7 @@ interface DockerNetwork {
 /**
  * Get the IP address of a container on a specific network
  */
-export async function getContainerIP(containerName: string, networkName = 'servarr_media'): Promise<string | null> {
+export async function getContainerIP(containerName: string, networkName = 'servarr_media') {
   try {
     const container = docker.getContainer(containerName);
     const info = await container.inspect();
@@ -95,7 +95,7 @@ export async function getContainerIP(containerName: string, networkName = 'serva
 /**
  * Execute a command in a container
  */
-async function execInContainer(containerName: string, cmd: string[]): Promise<CommandResult> {
+async function execInContainer(containerName: string, cmd: Array<string>) {
   try {
     const container = docker.getContainer(containerName);
 
@@ -152,7 +152,7 @@ async function execInContainer(containerName: string, cmd: string[]): Promise<Co
 /**
  * Get the egress IP of a container
  */
-export async function getEgressIP(containerName: string): Promise<string> {
+export async function getEgressIP(containerName: string) {
   // Try multiple methods to get egress IP
   const commands = [
     ['sh', '-c', 'busybox wget -qO- https://ifconfig.io'],
@@ -174,7 +174,7 @@ export async function getEgressIP(containerName: string): Promise<string> {
 /**
  * Get container logs
  */
-export async function getContainerLogs(containerName: string, since?: string): Promise<string> {
+export async function getContainerLogs(containerName: string, since?: string) {
   try {
     const container = docker.getContainer(containerName);
 
@@ -194,7 +194,7 @@ export async function getContainerLogs(containerName: string, since?: string): P
 /**
  * Read a file from a container
  */
-export async function readFileFromContainer(containerName: string, filePath: string): Promise<string> {
+export async function readFileFromContainer(containerName: string, filePath: string) {
   const result = await execInContainer(containerName, ['cat', filePath]);
   return result.ok ? result.out : '';
 }
@@ -208,7 +208,7 @@ interface ExecError extends Error {
  * Temporary: Execute a shell command (for curl until we migrate to fetch)
  * This will be removed once we migrate HTTP calls to fetch API
  */
-export async function cmd(command: string, opts: ExecOptions = {}): Promise<CommandResult> {
+export async function cmd(command: string, opts: ExecOptions = {}) {
   try {
     const { stdout } = await sh(command, { timeout: 4000, shell: '/bin/sh', ...opts });
     return { ok: true, out: stdout.toString().trim() };

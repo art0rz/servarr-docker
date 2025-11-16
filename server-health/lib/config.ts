@@ -16,7 +16,7 @@ const CACHE_TTL_MS = 60 * 1000;
 let apiKeyCache: Record<string, string | null> | null = null;
 let cacheExpiresAt = 0;
 
-async function readXmlValue(relPath: string, tag: string): Promise<string | null> {
+async function readXmlValue(relPath: string, tag: string) {
   const filePath = join(CONFIG_ROOT, relPath);
   try {
     const raw = await readFile(filePath, 'utf-8');
@@ -30,7 +30,7 @@ async function readXmlValue(relPath: string, tag: string): Promise<string | null
 
 export type ArrApiKeys = Record<string, string | null>;
 
-export async function loadArrApiKeys(): Promise<ArrApiKeys> {
+export async function loadArrApiKeys() {
   const now = Date.now();
   if (apiKeyCache !== null && now < cacheExpiresAt) {
     return apiKeyCache;
@@ -55,7 +55,7 @@ export interface QbitCredentials {
   password: string;
 }
 
-export async function loadQbitCredentials(): Promise<QbitCredentials | null> {
+export async function loadQbitCredentials() {
   const filePath = join(CONFIG_ROOT, 'cross-seed/config.js');
   let raw: string;
   try {
@@ -87,7 +87,7 @@ export interface CrossSeedStats {
   added: number;
 }
 
-export async function loadCrossSeedStats(): Promise<CrossSeedStats | null> {
+export async function loadCrossSeedStats() {
   const logPath = join(CONFIG_ROOT, 'cross-seed/logs/latest.log');
   let raw: string;
   try {

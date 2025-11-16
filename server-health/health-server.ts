@@ -56,9 +56,9 @@ type ServiceProbeResult =
 interface HealthCache {
   vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null };
   qbitEgress: QbitEgressProbeResult;
-  services: ServiceProbeResult[];
-  checks: CheckResult[];
-  nets: never[];
+  services: Array<ServiceProbeResult>;
+  checks: Array<CheckResult>;
+  nets: Array<never>;
   updatedAt: string | null;
   updating: boolean;
   error: string | null;
@@ -83,7 +83,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
   res.json(healthCache);
 });
 
-function resolveGitRef(): string {
+function resolveGitRef() {
   const envRef = process.env['GIT_REF'];
   if (envRef !== undefined) return envRef;
   try {
@@ -96,7 +96,7 @@ function resolveGitRef(): string {
   }
 }
 
-function publish(partial: Partial<HealthCache>): void {
+function publish(partial: Partial<HealthCache>) {
   healthCache = {
     ...healthCache,
     ...partial,
@@ -107,8 +107,8 @@ function publish(partial: Partial<HealthCache>): void {
   };
 }
 
-function startWatcher(name: string, fn: () => Promise<void>, interval: number): void {
-  const run = async (): Promise<void> => {
+function startWatcher(name: string, fn: () => Promise<void>, interval: number) {
+  const run = async () => {
     try {
       await fn();
     } catch (error) {
@@ -122,7 +122,7 @@ function startWatcher(name: string, fn: () => Promise<void>, interval: number): 
   void run();
 }
 
-async function updateVpnSection(): Promise<void> {
+async function updateVpnSection() {
   if (!USE_VPN) {
     publish({
       vpn: { name: 'VPN', ok: false, running: false, healthy: null },
@@ -134,7 +134,7 @@ async function updateVpnSection(): Promise<void> {
   publish({ vpn, qbitEgress });
 }
 
-async function updateServicesSection(): Promise<void> {
+async function updateServicesSection() {
   const urls = await discoverServices();
   const apiKeys = await loadArrApiKeys();
   const qbitAuth = await loadQbitCredentials();
@@ -153,13 +153,13 @@ async function updateServicesSection(): Promise<void> {
   publish({ services });
 }
 
-async function updateChecksSection(): Promise<void> {
+async function updateChecksSection() {
   const urls = await discoverServices();
   const apiKeys = await loadArrApiKeys();
   const vpn = healthCache.vpn;
   const qbitEgress = healthCache.qbitEgress;
   const qbitService = healthCache.services.find(s => s.name === 'qBittorrent') as QbitProbeResult | undefined;
-  const checks: CheckResult[] = [];
+  const checks: Array<CheckResult> = [];
 
   if (USE_VPN && 'running' in vpn) {
     const gluetunVpn = vpn as GluetunProbeResult;

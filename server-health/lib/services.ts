@@ -32,7 +32,7 @@ export type ServiceUrls = Record<string, string>;
 /**
  * Discover service URLs from Docker containers
  */
-export async function discoverServices(): Promise<ServiceUrls> {
+export async function discoverServices() {
   const urls: ServiceUrls = {};
 
   for (const [name, config] of Object.entries(SERVICE_CONFIG)) {
