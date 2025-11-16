@@ -1,6 +1,6 @@
 import type { HealthData } from './types';
 import { renderSummary, renderVpnCard, renderServiceCard, renderCheckCard } from './components';
-import { initNetworkChart, initLoadChart, updateCharts, setResolution, type TimeResolution } from './chart';
+import { initNetworkChart, initLoadChart, initResponseTimeChart, updateCharts, setResolution, type TimeResolution } from './chart';
 import './style.css';
 
 let chartsInitialized = false;
@@ -24,9 +24,11 @@ async function loadHealth() {
     if (!chartsInitialized) {
       const networkCanvas = document.getElementById('networkChart') as HTMLCanvasElement | null;
       const loadCanvas = document.getElementById('loadChart') as HTMLCanvasElement | null;
-      if (networkCanvas !== null && loadCanvas !== null) {
+      const responseTimeCanvas = document.getElementById('responseTimeChart') as HTMLCanvasElement | null;
+      if (networkCanvas !== null && loadCanvas !== null && responseTimeCanvas !== null) {
         initNetworkChart(networkCanvas);
         initLoadChart(loadCanvas);
+        initResponseTimeChart(responseTimeCanvas);
         chartsInitialized = true;
       }
     }
@@ -37,7 +39,7 @@ async function loadHealth() {
     }
 
     // Update VPN section - hide if VPN is disabled
-    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(4)');
+    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(5)');
     const vpnDivEl = document.getElementById('vpn');
 
     if (vpnSectionEl !== null && vpnDivEl !== null) {
@@ -59,7 +61,7 @@ async function loadHealth() {
     }
 
     // Update checks section
-    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(6)');
+    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(7)');
     const checksDivEl = document.getElementById('checks');
 
     if (checksSectionEl !== null && checksDivEl !== null) {

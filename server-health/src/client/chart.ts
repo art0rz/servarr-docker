@@ -6,9 +6,21 @@ Chart.register(LineController, LineElement, PointElement, LinearScale, TimeScale
 
 let networkChartInstance: Chart | null = null;
 let loadChartInstance: Chart | null = null;
+let responseTimeChartInstance: Chart | null = null;
 
 export type TimeResolution = '1h' | '1d' | '1w' | '1m';
 let currentResolution: TimeResolution = '1h';
+
+const serviceColors: Record<string, { border: string; background: string }> = {
+  'Sonarr': { border: 'rgb(52, 152, 219)', background: 'rgba(52, 152, 219, 0.2)' },
+  'Radarr': { border: 'rgb(241, 196, 15)', background: 'rgba(241, 196, 15, 0.2)' },
+  'Prowlarr': { border: 'rgb(230, 126, 34)', background: 'rgba(230, 126, 34, 0.2)' },
+  'Bazarr': { border: 'rgb(155, 89, 182)', background: 'rgba(155, 89, 182, 0.2)' },
+  'qBittorrent': { border: 'rgb(46, 204, 113)', background: 'rgba(46, 204, 113, 0.2)' },
+  'Cross-Seed': { border: 'rgb(231, 76, 60)', background: 'rgba(231, 76, 60, 0.2)' },
+  'FlareSolverr': { border: 'rgb(149, 165, 166)', background: 'rgba(149, 165, 166, 0.2)' },
+  'Recyclarr': { border: 'rgb(127, 140, 141)', background: 'rgba(127, 140, 141, 0.2)' },
+};
 
 export function initNetworkChart(canvasElement: HTMLCanvasElement) {
   const config: ChartConfiguration = {
@@ -144,6 +156,60 @@ export function initLoadChart(canvasElement: HTMLCanvasElement) {
   return loadChartInstance;
 }
 
+export function initResponseTimeChart(canvasElement: HTMLCanvasElement) {
+  const config: ChartConfiguration = {
+    type: 'line',
+    data: {
+      datasets: [],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          type: 'linear',
+          display: false,
+        },
+        y: {
+          type: 'linear',
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Response Time (ms)',
+            color: '#c9d1d9',
+          },
+          ticks: {
+            color: '#c9d1d9',
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+          },
+        },
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#c9d1d9',
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const label = context.dataset.label ?? '';
+              const value = context.parsed.y;
+              if (value === null) return label;
+              return `${label}: ${value.toFixed(0)}ms`;
+            },
+          },
+        },
+      },
+    },
+  };
+
+  responseTimeChartInstance = new Chart(canvasElement, config);
+  return responseTimeChartInstance;
+}
+
 function aggregateData(data: Array<ChartDataPoint>, resolution: TimeResolution): Array<ChartDataPoint> {
   if (resolution === '1h') {
     // For 1 hour, use all data points (we have up to 3600)
@@ -176,6 +242,22 @@ function aggregateData(data: Array<ChartDataPoint>, resolution: TimeResolution):
   const aggregated: Array<ChartDataPoint> = [];
   for (const points of buckets.values()) {
     if (points.length === 0) continue;
+
+    // Aggregate response times
+    const allServices = new Set<string>();
+    for (const point of points) {
+      for (const service of Object.keys(point.responseTimes)) {
+        allServices.add(service);
+      }
+    }
+    const avgResponseTimes: Record<string, number> = {};
+    for (const service of allServices) {
+      const serviceTimes = points.map(p => p.responseTimes[service] ?? 0).filter(t => t > 0);
+      avgResponseTimes[service] = serviceTimes.length > 0
+        ? serviceTimes.reduce((sum, t) => sum + t, 0) / serviceTimes.length
+        : 0;
+    }
+
     const avg = points.reduce((acc, p) => ({
       timestamp: p.timestamp,
       downloadRate: acc.downloadRate + p.downloadRate / points.length,
@@ -183,7 +265,8 @@ function aggregateData(data: Array<ChartDataPoint>, resolution: TimeResolution):
       load1: acc.load1 + p.load1 / points.length,
       load5: acc.load5 + p.load5 / points.length,
       load15: acc.load15 + p.load15 / points.length,
-    }), { timestamp: points[0]?.timestamp ?? Date.now(), downloadRate: 0, uploadRate: 0, load1: 0, load5: 0, load15: 0 });
+      responseTimes: avgResponseTimes,
+    }), { timestamp: points[0]?.timestamp ?? Date.now(), downloadRate: 0, uploadRate: 0, load1: 0, load5: 0, load15: 0, responseTimes: avgResponseTimes });
     aggregated.push(avg);
   }
 
@@ -195,7 +278,7 @@ export function setResolution(resolution: TimeResolution) {
 }
 
 export function updateCharts(data: Array<ChartDataPoint>) {
-  if (networkChartInstance === null || loadChartInstance === null) return;
+  if (networkChartInstance === null || loadChartInstance === null || responseTimeChartInstance === null) return;
 
   const aggregated = aggregateData(data, currentResolution);
 
@@ -215,6 +298,7 @@ export function updateCharts(data: Array<ChartDataPoint>) {
     y: point.load1, // 1-minute load average
   }));
 
+  // Update network and load charts
   const downloadDataset = networkChartInstance.data.datasets[0];
   const uploadDataset = networkChartInstance.data.datasets[1];
   const loadDataset = loadChartInstance.data.datasets[0];
@@ -223,7 +307,34 @@ export function updateCharts(data: Array<ChartDataPoint>) {
     downloadDataset.data = downloadData;
     uploadDataset.data = uploadData;
     loadDataset.data = loadData;
-    networkChartInstance.update('none'); // Update without animation for smooth real-time updates
+    networkChartInstance.update('none');
     loadChartInstance.update('none');
   }
+
+  // Update response time chart
+  const allServices = new Set<string>();
+  for (const point of aggregated) {
+    for (const service of Object.keys(point.responseTimes)) {
+      allServices.add(service);
+    }
+  }
+
+  // Create datasets for each service
+  const responseTimeDatasets = Array.from(allServices).map(service => {
+    const color = serviceColors[service] ?? { border: 'rgb(100, 100, 100)', background: 'rgba(100, 100, 100, 0.2)' };
+    return {
+      label: service,
+      data: aggregated.map((point, index) => ({
+        x: index,
+        y: point.responseTimes[service] ?? 0,
+      })),
+      borderColor: color.border,
+      backgroundColor: color.background,
+      fill: false,
+      tension: 0.4,
+    };
+  });
+
+  responseTimeChartInstance.data.datasets = responseTimeDatasets;
+  responseTimeChartInstance.update('none');
 }

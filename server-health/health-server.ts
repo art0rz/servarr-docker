@@ -60,6 +60,7 @@ interface ChartDataPoint {
   load1: number;
   load5: number;
   load15: number;
+  responseTimes: Record<string, number>; // service name -> response time in ms
 }
 
 interface HealthCache {
@@ -150,15 +151,26 @@ async function updateServicesSection() {
   const apiKeys = await loadArrApiKeys();
   const qbitAuth = await loadQbitCredentials();
   const qbitUrl = USE_VPN ? urls['gluetun'] : urls['qbittorrent'];
+
+  // Measure response time for each probe
+  const responseTimes: Record<string, number> = {};
+
+  async function timedProbe<T>(name: string, fn: Promise<T>): Promise<T> {
+    const start = Date.now();
+    const result = await fn;
+    responseTimes[name] = Date.now() - start;
+    return result;
+  }
+
   const probes = [
-    probeSonarr(urls['sonarr'], apiKeys['sonarr'] ?? null),
-    probeRadarr(urls['radarr'], apiKeys['radarr'] ?? null),
-    probeProwlarr(urls['prowlarr'], apiKeys['prowlarr'] ?? null),
-    probeBazarr(urls['bazarr']),
-    probeQbit(qbitUrl, qbitAuth),
-    probeCrossSeed(urls['cross-seed']),
-    probeFlare(urls['flaresolverr']),
-    probeRecyclarr(),
+    timedProbe('Sonarr', probeSonarr(urls['sonarr'], apiKeys['sonarr'] ?? null)),
+    timedProbe('Radarr', probeRadarr(urls['radarr'], apiKeys['radarr'] ?? null)),
+    timedProbe('Prowlarr', probeProwlarr(urls['prowlarr'], apiKeys['prowlarr'] ?? null)),
+    timedProbe('Bazarr', probeBazarr(urls['bazarr'])),
+    timedProbe('qBittorrent', probeQbit(qbitUrl, qbitAuth)),
+    timedProbe('Cross-Seed', probeCrossSeed(urls['cross-seed'])),
+    timedProbe('FlareSolverr', probeFlare(urls['flaresolverr'])),
+    timedProbe('Recyclarr', probeRecyclarr()),
   ];
   const services = await Promise.all(probes);
 
@@ -175,6 +187,7 @@ async function updateServicesSection() {
     load1: loadAvg.load1,
     load5: loadAvg.load5,
     load15: loadAvg.load15,
+    responseTimes,
   };
 
   const MAX_CHART_POINTS = 3600; // Keep last 3600 data points (1 hour at 1s intervals)

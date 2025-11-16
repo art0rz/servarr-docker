@@ -48,6 +48,7 @@ export interface ChartDataPoint {
   load1: number;
   load5: number;
   load15: number;
+  responseTimes: Record<string, number>; // service name -> response time in ms
 }
 
 export interface HealthData {
