@@ -15,37 +15,47 @@ function qbitHeaders(baseUrl: string, extras: string[] = []): string[] {
 }
 
 /**
- * Make a GET request using native fetch
+ * Convert header array to Headers object
  */
-async function httpGet(url: string, options: HttpOptions = {}): Promise<CommandResult> {
-  const timeout = (options.timeout ?? 3) * 1000; // Convert to milliseconds
+function buildHeaders(headerList: string[] = []): Headers {
+  const headers = new Headers();
+  for (const header of headerList) {
+    const separatorIndex = header.indexOf(':');
+    if (separatorIndex > 0) {
+      const key = header.slice(0, separatorIndex).trim();
+      const value = header.slice(separatorIndex + 1).trim();
+      headers.set(key, value);
+    }
+  }
+  return headers;
+}
+
+/**
+ * Core HTTP request function shared by GET and POST
+ */
+async function httpRequest(
+  url: string,
+  method: 'GET' | 'POST',
+  options: HttpOptions = {},
+  body?: string
+): Promise<CommandResult> {
+  const timeout = (options.timeout ?? (method === 'GET' ? 3 : 4)) * 1000;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => { controller.abort(); }, timeout);
 
   try {
-    // Convert header array to Headers object
-    const headers = new Headers();
-    if (options.headers !== undefined) {
-      for (const header of options.headers) {
-        const separatorIndex = header.indexOf(':');
-        if (separatorIndex > 0) {
-          const key = header.slice(0, separatorIndex).trim();
-          const value = header.slice(separatorIndex + 1).trim();
-          headers.set(key, value);
-        }
-      }
-    }
+    const headers = buildHeaders(options.headers);
 
     const response = await fetch(url, {
-      method: 'GET',
+      method,
       headers,
+      ...(body !== undefined ? { body } : {}),
       signal: controller.signal,
     });
 
     const text = await response.text();
-    const ok = response.ok;
 
-    if (ok) {
+    if (response.ok) {
       return { ok: true, out: text };
     } else {
       return { ok: false, out: '', err: text };
@@ -62,53 +72,18 @@ async function httpGet(url: string, options: HttpOptions = {}): Promise<CommandR
 }
 
 /**
+ * Make a GET request using native fetch
+ */
+async function httpGet(url: string, options: HttpOptions = {}): Promise<CommandResult> {
+  return httpRequest(url, 'GET', options);
+}
+
+/**
  * Make a POST request using native fetch
  */
 async function httpPost(url: string, body: unknown, options: HttpOptions = {}): Promise<CommandResult> {
-  const timeout = (options.timeout ?? 4) * 1000; // Convert to milliseconds
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => { controller.abort(); }, timeout);
-
-  try {
-    // Convert header array to Headers object
-    const headers = new Headers();
-    headers.set('Content-Type', 'application/json');
-
-    if (options.headers !== undefined) {
-      for (const header of options.headers) {
-        const separatorIndex = header.indexOf(':');
-        if (separatorIndex > 0) {
-          const key = header.slice(0, separatorIndex).trim();
-          const value = header.slice(separatorIndex + 1).trim();
-          headers.set(key, value);
-        }
-      }
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    const text = await response.text();
-    const ok = response.ok;
-
-    if (ok) {
-      return { ok: true, out: text };
-    } else {
-      return { ok: false, out: '', err: text };
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      out: '',
-      err: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const headers = ['Content-Type: application/json', ...(options.headers ?? [])];
+  return httpRequest(url, 'POST', { ...options, headers }, JSON.stringify(body));
 }
 
 interface BaseProbeResult {
@@ -266,16 +241,7 @@ export async function probeQbit(url: string | undefined, auth: QbitCredentials |
   let versionResult: { ok: boolean; out: string; err?: string } = { ok: false, out: '', err: '' };
 
   try {
-    const headers = new Headers();
-    const qbitHeaderList = qbitHeaders(url);
-    for (const header of qbitHeaderList) {
-      const separatorIndex = header.indexOf(':');
-      if (separatorIndex > 0) {
-        const key = header.slice(0, separatorIndex).trim();
-        const value = header.slice(separatorIndex + 1).trim();
-        headers.set(key, value);
-      }
-    }
+    const headers = buildHeaders(qbitHeaders(url));
 
     const response = await fetch(`${url}/api/v2/app/webapiVersion`, {
       method: 'GET',
@@ -309,7 +275,7 @@ export async function probeQbit(url: string | undefined, auth: QbitCredentials |
   let listenPort: number | null = null;
 
   if (ok && auth !== null && auth.username.length > 0 && auth.password.length > 0) {
-    const cookie = await qbitLogin(url, auth).catch(() => null);
+    const cookie = await getQbitCookie(url, auth).catch(() => null);
     if (cookie !== null) {
       const stats = await fetchQbitStats(url, cookie);
       if (stats !== null) {
@@ -506,24 +472,32 @@ export async function probeRecyclarr(): Promise<RecyclarrProbeResult> {
   };
 }
 
+/**
+ * qBittorrent session cookie cache
+ * Cookies typically expire after inactivity, so we cache for 10 minutes
+ */
+interface QbitCookieCache {
+  cookie: string;
+  expiresAt: number;
+  url: string;
+}
+
+let qbitCookieCache: QbitCookieCache | null = null;
+const COOKIE_CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Login to qBittorrent and get session cookie
+ */
 async function qbitLogin(url: string, auth: QbitCredentials): Promise<string | null> {
   const payload = `username=${encodeURIComponent(auth.username)}&password=${encodeURIComponent(auth.password)}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => { controller.abort(); }, 4000);
 
   try {
-    const headers = new Headers();
-    headers.set('Content-Type', 'application/x-www-form-urlencoded');
-
-    const qbitHeaderList = qbitHeaders(url);
-    for (const header of qbitHeaderList) {
-      const separatorIndex = header.indexOf(':');
-      if (separatorIndex > 0) {
-        const key = header.slice(0, separatorIndex).trim();
-        const value = header.slice(separatorIndex + 1).trim();
-        headers.set(key, value);
-      }
-    }
+    const headers = buildHeaders([
+      'Content-Type: application/x-www-form-urlencoded',
+      ...qbitHeaders(url),
+    ]);
 
     const response = await fetch(`${url}/api/v2/auth/login`, {
       method: 'POST',
@@ -540,12 +514,39 @@ async function qbitLogin(url: string, auth: QbitCredentials): Promise<string | n
 
     const match = /SID=([^;]+)/.exec(setCookie);
     const sid = match?.[1] !== undefined ? match[1].trim() : null;
+
+    // Cache the cookie
+    if (sid !== null) {
+      qbitCookieCache = {
+        cookie: sid,
+        expiresAt: Date.now() + COOKIE_CACHE_DURATION_MS,
+        url,
+      };
+    }
+
     return sid;
   } catch {
     return null;
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Get cached qBittorrent cookie or refresh if expired
+ */
+async function getQbitCookie(url: string, auth: QbitCredentials): Promise<string | null> {
+  // Check if we have a valid cached cookie for this URL
+  if (
+    qbitCookieCache !== null &&
+    qbitCookieCache.url === url &&
+    qbitCookieCache.expiresAt > Date.now()
+  ) {
+    return qbitCookieCache.cookie;
+  }
+
+  // Cache miss or expired - login and cache
+  return await qbitLogin(url, auth);
 }
 
 interface QbitStats {
