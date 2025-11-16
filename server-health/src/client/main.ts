@@ -6,6 +6,9 @@ import './style.css';
 let chartsInitialized = false;
 let chartData: Array<ChartDataPoint> = [];
 
+// Local health state (updated via WebSocket)
+let healthData: HealthData | null = null;
+
 // Decompress compact chart data format
 function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
   const result: Array<ChartDataPoint> = [];
@@ -29,71 +32,77 @@ function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
   return result;
 }
 
-// Main load function
-async function loadHealth() {
+// Render health data (called after state update)
+function renderHealth() {
+  if (healthData === null) return;
+
+  // Check if VPN is enabled
+  const vpnEnabled = 'running' in healthData.vpn && healthData.vpn.running;
+
+  // Update summary
+  const summaryEl = document.getElementById('summary');
+  if (summaryEl !== null) {
+    summaryEl.innerHTML = renderSummary(healthData);
+  }
+
+  // Initialize charts on first load
+  if (!chartsInitialized) {
+    const networkCanvas = document.getElementById('networkChart') as HTMLCanvasElement | null;
+    const loadCanvas = document.getElementById('loadChart') as HTMLCanvasElement | null;
+    const responseTimeCanvas = document.getElementById('responseTimeChart') as HTMLCanvasElement | null;
+    if (networkCanvas !== null && loadCanvas !== null && responseTimeCanvas !== null) {
+      initNetworkChart(networkCanvas);
+      initLoadChart(loadCanvas);
+      initResponseTimeChart(responseTimeCanvas);
+      chartsInitialized = true;
+    }
+  }
+
+  // Update charts with cached data
+  if (chartsInitialized && chartData.length > 0) {
+    updateCharts(chartData);
+  }
+
+  // Update VPN section - hide if VPN is disabled
+  const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(4)');
+  const vpnDivEl = document.getElementById('vpn');
+
+  if (vpnSectionEl !== null && vpnDivEl !== null) {
+    if (vpnEnabled) {
+      vpnSectionEl.style.display = 'block';
+      vpnDivEl.style.display = 'grid';
+      vpnDivEl.innerHTML = renderVpnCard(healthData.vpn, healthData.qbitEgress);
+    } else {
+      vpnSectionEl.style.display = 'none';
+      vpnDivEl.style.display = 'none';
+    }
+  }
+
+  // Update services section
+  const servicesEl = document.getElementById('services');
+  if (servicesEl !== null) {
+    const services = healthData.services.map(renderServiceCard).join('');
+    servicesEl.innerHTML = services.length > 0 ? services : '<div class="empty">No services found</div>';
+  }
+
+  // Update checks section
+  const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(6)');
+  const checksDivEl = document.getElementById('checks');
+
+  if (checksSectionEl !== null && checksDivEl !== null) {
+    const checks = healthData.checks.map(renderCheckCard).join('');
+    checksSectionEl.style.display = 'block';
+    checksDivEl.style.display = 'grid';
+    checksDivEl.innerHTML = checks.length > 0 ? checks : '<div class="empty">No checks configured</div>';
+  }
+}
+
+// Fetch health data from HTTP (only for initial load or fallback)
+async function fetchHealth() {
   try {
     const response = await fetch('/api/health');
-    const data = await response.json() as HealthData;
-
-    // Check if VPN is enabled
-    const vpnEnabled = 'running' in data.vpn && data.vpn.running;
-
-    // Update summary
-    const summaryEl = document.getElementById('summary');
-    if (summaryEl !== null) {
-      summaryEl.innerHTML = renderSummary(data);
-    }
-
-    // Initialize charts on first load
-    if (!chartsInitialized) {
-      const networkCanvas = document.getElementById('networkChart') as HTMLCanvasElement | null;
-      const loadCanvas = document.getElementById('loadChart') as HTMLCanvasElement | null;
-      const responseTimeCanvas = document.getElementById('responseTimeChart') as HTMLCanvasElement | null;
-      if (networkCanvas !== null && loadCanvas !== null && responseTimeCanvas !== null) {
-        initNetworkChart(networkCanvas);
-        initLoadChart(loadCanvas);
-        initResponseTimeChart(responseTimeCanvas);
-        chartsInitialized = true;
-      }
-    }
-
-    // Update charts with cached data
-    if (chartsInitialized && chartData.length > 0) {
-      updateCharts(chartData);
-    }
-
-    // Update VPN section - hide if VPN is disabled
-    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(4)');
-    const vpnDivEl = document.getElementById('vpn');
-
-    if (vpnSectionEl !== null && vpnDivEl !== null) {
-      if (vpnEnabled) {
-        vpnSectionEl.style.display = 'block';
-        vpnDivEl.style.display = 'grid';
-        vpnDivEl.innerHTML = renderVpnCard(data.vpn, data.qbitEgress);
-      } else {
-        vpnSectionEl.style.display = 'none';
-        vpnDivEl.style.display = 'none';
-      }
-    }
-
-    // Update services section
-    const servicesEl = document.getElementById('services');
-    if (servicesEl !== null) {
-      const services = data.services.map(renderServiceCard).join('');
-      servicesEl.innerHTML = services.length > 0 ? services : '<div class="empty">No services found</div>';
-    }
-
-    // Update checks section
-    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(6)');
-    const checksDivEl = document.getElementById('checks');
-
-    if (checksSectionEl !== null && checksDivEl !== null) {
-      const checks = data.checks.map(renderCheckCard).join('');
-      checksSectionEl.style.display = 'block';
-      checksDivEl.style.display = 'grid';
-      checksDivEl.innerHTML = checks.length > 0 ? checks : '<div class="empty">No checks configured</div>';
-    }
+    healthData = await response.json() as HealthData;
+    renderHealth();
   } catch (error) {
     console.error('Failed to load health data:', error);
     const summaryEl = document.getElementById('summary');
@@ -120,11 +129,11 @@ async function loadChartData() {
 }
 
 function refresh() {
-  void loadHealth();
+  void fetchHealth();
   void loadChartData();
 }
 
-// Make refresh function globally available
+// Make refresh function globally available (for debugging)
 (window as unknown as { refresh: () => void }).refresh = refresh;
 
 // Set up resolution selector
@@ -179,7 +188,17 @@ function connectWebSocket() {
 
       if (message.type === 'health') {
         // Partial health update - merge with current state and re-render
-        void loadHealth();
+        if (healthData !== null) {
+          const partialUpdate = message.data as Partial<HealthData>;
+          healthData = {
+            ...healthData,
+            ...partialUpdate,
+          };
+          renderHealth();
+        } else {
+          // No local state yet, fetch full state from server
+          void fetchHealth();
+        }
       } else if (message.type === 'chartPoint') {
         // New chart data point - append to chartData
         const newPoint = message.data as ChartDataPoint;
@@ -216,17 +235,8 @@ function connectWebSocket() {
 }
 
 // Initial load via HTTP
-void loadHealth();
+void fetchHealth();
 void loadChartData();
 
 // Connect WebSocket for real-time updates
 connectWebSocket();
-
-// Fallback polling if WebSocket fails (every 30s)
-setInterval(() => {
-  if (ws === null || ws.readyState !== WebSocket.OPEN) {
-    console.log('[fallback] WebSocket not connected, polling HTTP...');
-    void loadHealth();
-    void loadChartData();
-  }
-}, 30000);
