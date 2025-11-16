@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node health-server.js",
-    "dev:server": "tsc --watch",
+    "start": "node dist/server/health-server.js",
+    "dev:server": "tsup --watch",
     "dev:client": "vite",
-    "build:server": "tsc",
+    "build:server": "tsup",
     "build:client": "vite build",
     "build": "npm run build:server && npm run build:client",
     "lint": "eslint .",
@@ -26,6 +26,7 @@
     "@types/node": "^24.10.1",
     "eslint": "^9.39.1",
     "jiti": "^2.6.1",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.2"

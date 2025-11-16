@@ -25,6 +25,9 @@ Thumbs.db
 # Node modules (if running locally)
 node_modules/
 
+# Build artifacts
+dist/
+
 # Python
 .venv/
 __pycache__/

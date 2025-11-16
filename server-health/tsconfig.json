@@ -40,9 +40,10 @@
     "skipLibCheck": true
   },
   "include": [
-    "health-server.js",
+    "health-server.ts",
     "lib/**/*",
-    "*.config.ts"
+    "*.config.ts",
+    "tsup.config.ts"
   ],
   "exclude": [
     "node_modules",
