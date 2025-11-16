@@ -374,13 +374,13 @@ export function updateCharts(data: Array<ChartDataPoint>) {
     loadDataset.data = loadData;
 
     // Update x-axis bounds
-    if (networkChartInstance.options.scales?.x !== undefined) {
-      networkChartInstance.options.scales.x.min = minTime;
-      networkChartInstance.options.scales.x.max = now;
+    if (networkChartInstance.options.scales?.['x'] !== undefined) {
+      networkChartInstance.options.scales['x'].min = minTime;
+      networkChartInstance.options.scales['x'].max = now;
     }
-    if (loadChartInstance.options.scales?.x !== undefined) {
-      loadChartInstance.options.scales.x.min = minTime;
-      loadChartInstance.options.scales.x.max = now;
+    if (loadChartInstance.options.scales?.['x'] !== undefined) {
+      loadChartInstance.options.scales['x'].min = minTime;
+      loadChartInstance.options.scales['x'].max = now;
     }
 
     networkChartInstance.update('none');
@@ -414,9 +414,9 @@ export function updateCharts(data: Array<ChartDataPoint>) {
   responseTimeChartInstance.data.datasets = responseTimeDatasets;
 
   // Update x-axis bounds
-  if (responseTimeChartInstance.options.scales?.x !== undefined) {
-    responseTimeChartInstance.options.scales.x.min = minTime;
-    responseTimeChartInstance.options.scales.x.max = now;
+  if (responseTimeChartInstance.options.scales?.['x'] !== undefined) {
+    responseTimeChartInstance.options.scales['x'].min = minTime;
+    responseTimeChartInstance.options.scales['x'].max = now;
   }
 
   responseTimeChartInstance.update('none');

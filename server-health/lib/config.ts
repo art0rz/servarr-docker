@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { watch } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -15,9 +16,7 @@ const API_FILES = {
   bazarr: 'bazarr/config/config.ini',
 } as const;
 
-const CACHE_TTL_MS = 60 * 1000;
 let apiKeyCache: Record<string, string | null> | null = null;
-let cacheExpiresAt = 0;
 
 async function readXmlValue(relPath: string, tag: string) {
   const filePath = join(CONFIG_ROOT, relPath);
@@ -62,12 +61,7 @@ async function readIniValue(relPath: string, section: string, key: string) {
 
 export type ArrApiKeys = Record<string, string | null>;
 
-export async function loadArrApiKeys() {
-  const now = Date.now();
-  if (apiKeyCache !== null && now < cacheExpiresAt) {
-    return apiKeyCache;
-  }
-
+async function reloadApiKeys() {
   const entries = await Promise.all(
     Object.entries(API_FILES).map(async ([name, relPath]) => {
       let apiKey: string | null;
@@ -81,8 +75,38 @@ export async function loadArrApiKeys() {
   );
 
   apiKeyCache = Object.fromEntries(entries);
-  cacheExpiresAt = now + CACHE_TTL_MS;
+  console.log('[config] Loaded API keys:', Object.keys(apiKeyCache).join(', '));
   return apiKeyCache;
+}
+
+export async function loadArrApiKeys() {
+  if (apiKeyCache !== null) {
+    return apiKeyCache;
+  }
+  return await reloadApiKeys();
+}
+
+export function watchConfigFiles() {
+  console.log('[config] Setting up file watchers for API key configs');
+
+  for (const [name, relPath] of Object.entries(API_FILES)) {
+    const filePath = join(CONFIG_ROOT, relPath);
+
+    try {
+      const watcher = watch(filePath, { persistent: false }, (eventType) => {
+        if (eventType === 'change') {
+          console.log(`[config] ${name} config changed, reloading API keys...`);
+          void reloadApiKeys();
+        }
+      });
+
+      watcher.on('error', (error) => {
+        console.error(`[config] Error watching ${filePath}:`, error);
+      });
+    } catch (error) {
+      console.error(`[config] Failed to watch ${filePath}:`, error);
+    }
+  }
 }
 
 const QBIT_CLIENT_REGEX = /"qbittorrent:(?:readonly:)?([^"]+)"/gi;

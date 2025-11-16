@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { discoverServices } from './lib/services';
-import { loadArrApiKeys, loadQbitCredentials } from './lib/config';
+import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles } from './lib/config';
 import { getLoadAverage } from './lib/system';
 import {
   probeGluetun,
@@ -291,6 +291,9 @@ async function updateChecksSection() {
 
   publish({ checks: [...checks, ...integrationChecks, ...systemChecks] });
 }
+
+// Start file watchers for config files
+watchConfigFiles();
 
 startWatcher('vpn', updateVpnSection, HEALTH_INTERVAL_MS);
 startWatcher('services', updateServicesSection, HEALTH_INTERVAL_MS);
