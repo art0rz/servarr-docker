@@ -52,12 +52,19 @@ type ServiceProbeResult =
   | CrossSeedProbeResult
   | RecyclarrProbeResult;
 
+interface ChartDataPoint {
+  timestamp: number;
+  downloadRate: number;
+  uploadRate: number;
+}
+
 interface HealthCache {
   vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null };
   qbitEgress: QbitEgressProbeResult;
   services: Array<ServiceProbeResult>;
   checks: Array<CheckResult>;
   nets: Array<never>;
+  chartData: Array<ChartDataPoint>;
   updatedAt: string | null;
   updating: boolean;
   error: string | null;
@@ -72,6 +79,7 @@ let healthCache: HealthCache = {
   services: [],
   checks: USE_VPN ? [] : [{ name: 'VPN status', ok: true, detail: 'disabled (no VPN configured)' }],
   nets: [],
+  chartData: [],
   updatedAt: null,
   updating: true,
   error: 'initializing',
@@ -149,7 +157,25 @@ async function updateServicesSection() {
     probeRecyclarr(),
   ];
   const services = await Promise.all(probes);
-  publish({ services });
+
+  // Track upload/download rates for charts
+  const qbitService = services.find(s => s.name === 'qBittorrent') as QbitProbeResult | undefined;
+  const downloadRate = qbitService?.dl ?? 0;
+  const uploadRate = qbitService?.up ?? 0;
+
+  const newDataPoint: ChartDataPoint = {
+    timestamp: Date.now(),
+    downloadRate,
+    uploadRate,
+  };
+
+  const MAX_CHART_POINTS = 60; // Keep last 60 data points (1 minute at 1s intervals)
+  const updatedChartData = [...healthCache.chartData, newDataPoint];
+  if (updatedChartData.length > MAX_CHART_POINTS) {
+    updatedChartData.shift(); // Remove oldest point
+  }
+
+  publish({ services, chartData: updatedChartData });
 }
 
 async function updateChecksSection() {

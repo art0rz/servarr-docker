@@ -41,12 +41,19 @@ export interface CheckResult {
   detail: string;
 }
 
+export interface ChartDataPoint {
+  timestamp: number;
+  downloadRate: number;
+  uploadRate: number;
+}
+
 export interface HealthData {
   vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null };
   qbitEgress: QbitEgressProbeResult;
   services: Array<ServiceProbeResult>;
   checks: Array<CheckResult>;
   nets: Array<never>;
+  chartData: Array<ChartDataPoint>;
   updatedAt: string | null;
   updating: boolean;
   error: string | null;

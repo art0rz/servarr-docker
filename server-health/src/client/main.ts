@@ -1,6 +1,9 @@
 import type { HealthData } from './types';
 import { renderSummary, renderVpnCard, renderServiceCard, renderCheckCard } from './components';
+import { initChart, updateChart } from './chart';
 import './style.css';
+
+let chartInitialized = false;
 
 // Main load function
 async function loadHealth() {
@@ -17,8 +20,22 @@ async function loadHealth() {
       summaryEl.innerHTML = renderSummary(data);
     }
 
+    // Initialize chart on first load
+    if (!chartInitialized) {
+      const canvas = document.getElementById('trafficChart') as HTMLCanvasElement | null;
+      if (canvas !== null) {
+        initChart(canvas);
+        chartInitialized = true;
+      }
+    }
+
+    // Update chart with latest data
+    if (chartInitialized && data.chartData.length > 0) {
+      updateChart(data.chartData);
+    }
+
     // Update VPN section - hide if VPN is disabled
-    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(1)');
+    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(2)');
     const vpnDivEl = document.getElementById('vpn');
 
     if (vpnSectionEl !== null && vpnDivEl !== null) {
@@ -40,7 +57,7 @@ async function loadHealth() {
     }
 
     // Update checks section
-    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(3)');
+    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(4)');
     const checksDivEl = document.getElementById('checks');
 
     if (checksSectionEl !== null && checksDivEl !== null) {
