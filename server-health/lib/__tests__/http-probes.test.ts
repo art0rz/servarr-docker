@@ -16,7 +16,7 @@ describe('HTTP Probe Functions', () => {
       const response = await mockHttp.get(`${url}/api/v3/system/status`);
 
       expect(response.ok).toBe(true);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as { version: string };
       expect(data.version).toBe('4.0.0.738');
     });
 
@@ -39,7 +39,7 @@ describe('HTTP Probe Functions', () => {
       mockHttp.setJsonResponse(`${url}/api/v3/queue`, queueData);
 
       const response = await mockHttp.get(`${url}/api/v3/queue`);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as { totalRecords: number };
 
       expect(data.totalRecords).toBe(5);
     });
@@ -53,7 +53,7 @@ describe('HTTP Probe Functions', () => {
       const response = await mockHttp.get(`${url}/api/v3/system/status`);
 
       expect(response.ok).toBe(true);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as { version: string };
       expect(data.version).toBe('5.2.0.8041');
     });
   });
@@ -66,7 +66,7 @@ describe('HTTP Probe Functions', () => {
       const response = await mockHttp.get(`${url}/api/v1/system/status`);
 
       expect(response.ok).toBe(true);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as { version: string };
       expect(data.version).toBe('1.10.0.4280');
     });
 
@@ -80,7 +80,7 @@ describe('HTTP Probe Functions', () => {
       mockHttp.setJsonResponse(`${url}/api/v1/indexer`, indexers);
 
       const response = await mockHttp.get(`${url}/api/v1/indexer`);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as Array<unknown>;
 
       expect(Array.isArray(data)).toBe(true);
       expect(data).toHaveLength(3);
@@ -97,7 +97,7 @@ describe('HTTP Probe Functions', () => {
       });
 
       expect(response.ok).toBe(true);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as { version: string };
       expect(data.version).toBe('1.4.0');
     });
   });
@@ -108,7 +108,7 @@ describe('HTTP Probe Functions', () => {
       mockHttp.setJsonResponse(`${url}/api/v2/transfer/info`, fixtures.qbitTransferInfo);
 
       const response = await mockHttp.get(`${url}/api/v2/transfer/info`);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as { dl_info_speed: number; up_info_speed: number };
 
       expect(data.dl_info_speed).toBe(1048576);
       expect(data.up_info_speed).toBe(524288);
@@ -119,7 +119,7 @@ describe('HTTP Probe Functions', () => {
       mockHttp.setJsonResponse(`${url}/api/v2/torrents/info`, fixtures.qbitTorrents);
 
       const response = await mockHttp.get(`${url}/api/v2/torrents/info`);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as Array<unknown>;
 
       expect(Array.isArray(data)).toBe(true);
       expect(data).toHaveLength(2);
@@ -130,7 +130,7 @@ describe('HTTP Probe Functions', () => {
       mockHttp.setJsonResponse(`${url}/api/v2/app/preferences`, fixtures.qbitPreferences);
 
       const response = await mockHttp.get(`${url}/api/v2/app/preferences`);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as { listen_port: number };
 
       expect(data.listen_port).toBe(6881);
     });
@@ -145,7 +145,7 @@ describe('HTTP Probe Functions', () => {
       const response = await mockHttp.get(`${url}/health`);
 
       expect(response.ok).toBe(true);
-      const data = JSON.parse(response.out);
+      const data = JSON.parse(response.out) as { status: string };
       expect(data.status).toBe('ok');
     });
   });

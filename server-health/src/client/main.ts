@@ -199,7 +199,8 @@ function connectWebSocket() {
           // No local state yet, fetch full state from server
           void fetchHealth();
         }
-      } else if (message.type === 'chartPoint') {
+      } else {
+        // message.type === 'chartPoint'
         // New chart data point - append to chartData
         const newPoint = message.data as ChartDataPoint;
         chartData.push(newPoint);

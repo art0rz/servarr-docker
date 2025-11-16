@@ -63,7 +63,7 @@ export class NodeFileSystem implements FileSystem {
 // ============================================================================
 
 export interface ContainerInfo {
-  Names: string[];
+  Names: Array<string>;
   State: string;
   Status: string;
   Ports: Array<{ PublicPort?: number; PrivatePort: number; Type: string }>;
@@ -78,10 +78,10 @@ export interface ContainerInspect {
 }
 
 export interface DockerClient {
-  listContainers(): Promise<ContainerInfo[]>;
+  listContainers(): Promise<Array<ContainerInfo>>;
   inspectContainer(id: string): Promise<ContainerInspect>;
   getContainerLogs(containerName: string, since?: number): Promise<string>;
-  execInContainer(containerName: string, cmd: string[]): Promise<{ out: string; err: string }>;
+  execInContainer(containerName: string, cmd: Array<string>): Promise<{ out: string; err: string }>;
 }
 
 export class DockerodeClient implements DockerClient {
@@ -91,8 +91,8 @@ export class DockerodeClient implements DockerClient {
     this.docker = docker ?? new Docker({ socketPath: '/var/run/docker.sock' });
   }
 
-  async listContainers(): Promise<ContainerInfo[]> {
-    return (await this.docker.listContainers()) as ContainerInfo[];
+  async listContainers(): Promise<Array<ContainerInfo>> {
+    return (await this.docker.listContainers()) as Array<ContainerInfo>;
   }
 
   async inspectContainer(id: string): Promise<ContainerInspect> {
@@ -130,7 +130,7 @@ export class DockerodeClient implements DockerClient {
 
   async execInContainer(
     containerName: string,
-    cmd: string[]
+    cmd: Array<string>
   ): Promise<{ out: string; err: string }> {
     try {
       const containers = await this.listContainers();
@@ -150,7 +150,7 @@ export class DockerodeClient implements DockerClient {
       });
 
       const stream = await exec.start({ hijack: true, stdin: false });
-      const chunks: Buffer[] = [];
+      const chunks: Array<Buffer> = [];
 
       await new Promise<void>((resolve, reject) => {
         stream.on('data', (chunk: Buffer) => { chunks.push(chunk); });

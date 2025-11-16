@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { Server } from 'node:http';
 
 import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles, watchCrossSeedLog } from './lib/config';
@@ -29,7 +28,6 @@ import {
   type GluetunProbeResult,
   type QbitEgressProbeResult,
   type SonarrProbeResult,
-  type RadarrProbeResult,
   type ProwlarrProbeResult,
   type BazarrProbeResult,
   type QbitProbeResult,
@@ -51,7 +49,7 @@ const wsClients = new Set<WebSocket>();
 
 type ServiceProbeResult =
   | SonarrProbeResult
-  | RadarrProbeResult
+   
   | ProwlarrProbeResult
   | BazarrProbeResult
   | QbitProbeResult
@@ -167,7 +165,7 @@ function publish(partial: Partial<HealthCache>) {
 
   // Compare new data with current cache (deep comparison)
   let hasChanges = false;
-  const changedKeys: string[] = [];
+  const changedKeys: Array<string> = [];
   for (const [key, value] of Object.entries(newData)) {
     const currentValue = healthCache[key as keyof HealthCache];
     if (JSON.stringify(currentValue) !== JSON.stringify(value)) {
@@ -188,8 +186,8 @@ function publish(partial: Partial<HealthCache>) {
 
   // Only broadcast if data actually changed
   if (hasChanges && wsClients.size > 0) {
-    console.log(`[ws] Broadcasting changes: ${changedKeys.join(', ')} to ${wsClients.size} client(s)`);
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    console.log(`[ws] Broadcasting changes: ${changedKeys.join(', ')} to ${String(wsClients.size)} client(s)`);
+     
     const { chartData: _, ...updateData } = partial;
     broadcastToClients({
       type: 'health',
@@ -372,7 +370,7 @@ app.use(express.static(join(__dirname, '..', 'client')));
 // Create HTTP server
 const server = app.listen(PORT, () => {
   console.log(`Health server listening on :${PORT}`);
-}) as Server;
+});
 
 // Create WebSocket server
 const wss = new WebSocketServer({ server });

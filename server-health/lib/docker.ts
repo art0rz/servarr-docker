@@ -55,7 +55,7 @@ async function refreshContainerCache() {
       });
     }
 
-    console.log(`[docker] Cached ${containerCache.size} containers`);
+    console.log(`[docker] Cached ${String(containerCache.size)} containers`);
   } catch (error) {
     console.error('[docker] Failed to refresh container cache:', error);
   }
@@ -141,7 +141,7 @@ async function updateContainerInCache(containerId: string, containerName: string
       networks,
       updatedAt: Date.now(),
     });
-  } catch (error) {
+  } catch {
     // Container might have been removed
     containerCache.delete(containerName);
   }
@@ -170,7 +170,7 @@ async function readGluetunPort() {
       cachedForwardedPort = '';
       console.log('[docker] Gluetun forwarded port file contains invalid data');
     }
-  } catch (error) {
+  } catch {
     // File doesn't exist yet or can't be read
     cachedForwardedPort = '';
   }

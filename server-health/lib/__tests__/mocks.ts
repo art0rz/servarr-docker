@@ -16,7 +16,7 @@ import type {
 // ============================================================================
 
 export class MockHttpClient implements HttpClient {
-  private responses: Map<string, HttpResponse> = new Map();
+  private responses = new Map<string, HttpResponse>();
 
   setResponse(url: string, response: HttpResponse): void {
     this.responses.set(url, response);
@@ -38,18 +38,18 @@ export class MockHttpClient implements HttpClient {
     });
   }
 
-  async get(url: string, _headers?: Record<string, string>): Promise<HttpResponse> {
+  get(url: string, _headers?: Record<string, string>): Promise<HttpResponse> {
     const response = this.responses.get(url);
     if (response !== undefined) {
-      return response;
+      return Promise.resolve(response);
     }
 
     // Default 404 response for unmocked URLs
-    return {
+    return Promise.resolve({
       ok: false,
       status: 404,
       out: 'Not Found',
-    };
+    });
   }
 
   clear(): void {
@@ -62,18 +62,18 @@ export class MockHttpClient implements HttpClient {
 // ============================================================================
 
 export class MockFileSystem implements FileSystem {
-  private files: Map<string, string> = new Map();
+  private files = new Map<string, string>();
 
   setFile(path: string, content: string): void {
     this.files.set(path, content);
   }
 
-  async readFile(path: string, _encoding: BufferEncoding): Promise<string> {
+  readFile(path: string, _encoding: BufferEncoding): Promise<string> {
     const content = this.files.get(path);
     if (content !== undefined) {
-      return content;
+      return Promise.resolve(content);
     }
-    throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+    return Promise.reject(new Error(`ENOENT: no such file or directory, open '${path}'`));
   }
 
   clear(): void {
@@ -86,12 +86,12 @@ export class MockFileSystem implements FileSystem {
 // ============================================================================
 
 export class MockDockerClient implements DockerClient {
-  private containers: ContainerInfo[] = [];
-  private inspectData: Map<string, ContainerInspect> = new Map();
-  private logs: Map<string, string> = new Map();
-  private execResults: Map<string, { out: string; err: string }> = new Map();
+  private containers: Array<ContainerInfo> = [];
+  private inspectData = new Map<string, ContainerInspect>();
+  private logs = new Map<string, string>();
+  private execResults = new Map<string, { out: string; err: string }>();
 
-  setContainers(containers: ContainerInfo[]): void {
+  setContainers(containers: Array<ContainerInfo>): void {
     this.containers = containers;
   }
 
@@ -108,32 +108,32 @@ export class MockDockerClient implements DockerClient {
     this.execResults.set(key, result);
   }
 
-  async listContainers(): Promise<ContainerInfo[]> {
-    return this.containers;
+  listContainers(): Promise<Array<ContainerInfo>> {
+    return Promise.resolve(this.containers);
   }
 
-  async inspectContainer(id: string): Promise<ContainerInspect> {
+  inspectContainer(id: string): Promise<ContainerInspect> {
     const data = this.inspectData.get(id);
     if (data !== undefined) {
-      return data;
+      return Promise.resolve(data);
     }
-    throw new Error(`Container ${id} not found`);
+    return Promise.reject(new Error(`Container ${id} not found`));
   }
 
-  async getContainerLogs(containerName: string, _since?: number): Promise<string> {
-    return this.logs.get(containerName) ?? '';
+  getContainerLogs(containerName: string, _since?: number): Promise<string> {
+    return Promise.resolve(this.logs.get(containerName) ?? '');
   }
 
-  async execInContainer(
+  execInContainer(
     containerName: string,
-    cmd: string[]
+    cmd: Array<string>
   ): Promise<{ out: string; err: string }> {
     const key = `${containerName}:${cmd.join(' ')}`;
     const result = this.execResults.get(key);
     if (result !== undefined) {
-      return result;
+      return Promise.resolve(result);
     }
-    return { out: '', err: 'command not mocked' };
+    return Promise.resolve({ out: '', err: 'command not mocked' });
   }
 
   clear(): void {

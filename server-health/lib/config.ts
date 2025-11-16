@@ -37,7 +37,7 @@ async function readYamlValue(relPath: string, path: string) {
 
     // Simple YAML parser for nested keys (e.g., "auth.apikey")
     const lines = raw.split(/\r?\n/);
-    const stack: string[] = [];
+    const stack: Array<string> = [];
 
     for (const line of lines) {
       if (line.trim().startsWith('#') || line.trim().length === 0) continue;
@@ -49,7 +49,7 @@ async function readYamlValue(relPath: string, path: string) {
 
       // Parse key: value
       const kvMatch = /^(\s*)([^:]+):\s*(.*)$/.exec(line);
-      if (kvMatch !== null && kvMatch[2] !== undefined) {
+      if (kvMatch?.[2] !== undefined) {
         const key = kvMatch[2].trim();
         const value = kvMatch[3]?.trim() ?? '';
 
@@ -203,7 +203,7 @@ async function reloadCrossSeedStats() {
     }
 
     // Also count saved torrents from search
-    if (/saved to/.test(line) || /SAVED/.test(line)) {
+    if (line.includes('saved to') || line.includes('SAVED')) {
       added += 1;
     }
   }
@@ -212,7 +212,7 @@ async function reloadCrossSeedStats() {
     lastTimestamp,
     added,
   };
-  console.log(`[config] Cross-Seed stats updated: ${added} torrents added, last run: ${lastTimestamp ?? 'never'}`);
+  console.log(`[config] Cross-Seed stats updated: ${String(added)} torrents added, last run: ${lastTimestamp ?? 'never'}`);
 }
 
 /**
@@ -242,6 +242,6 @@ export function watchCrossSeedLog() {
 /**
  * Get cached Cross-Seed stats
  */
-export async function loadCrossSeedStats() {
+export function loadCrossSeedStats() {
   return crossSeedStatsCache;
 }

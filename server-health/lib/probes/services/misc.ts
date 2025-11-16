@@ -38,7 +38,7 @@ export async function probeCrossSeed(url: string | undefined): Promise<CrossSeed
   const ok = result.ok;
 
   if (ok) {
-    const stats = await loadCrossSeedStats().catch(() => null);
+    const stats = loadCrossSeedStats();
     return {
       name: 'Cross-Seed',
       url,

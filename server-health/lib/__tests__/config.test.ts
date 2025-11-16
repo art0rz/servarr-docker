@@ -61,7 +61,7 @@ sonarr:
       const content = await mockFs.readFile('/config/bazarr/config/config.yaml', 'utf-8');
 
       const lines = content.split(/\r?\n/);
-      const stack: string[] = [];
+      const stack: Array<string> = [];
       let apiKey: string | null = null;
 
       for (const line of lines) {
@@ -72,7 +72,7 @@ sonarr:
         const depth = Math.floor(indent / 2);
 
         const kvMatch = /^(\s*)([^:]+):\s*(.*)$/.exec(line);
-        if (kvMatch !== null && kvMatch[2] !== undefined) {
+        if (kvMatch?.[2] !== undefined) {
           const key = kvMatch[2].trim();
           const value = kvMatch[3]?.trim() ?? '';
 
