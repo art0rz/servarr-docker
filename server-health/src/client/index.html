@@ -14,9 +14,21 @@
   <main>
     <div id="summary"></div>
 
-    <h2>Network Traffic & Server Load</h2>
+    <div class="resolution-selector">
+      <button class="resolution-btn active" data-resolution="1h">1h</button>
+      <button class="resolution-btn" data-resolution="1d">1d</button>
+      <button class="resolution-btn" data-resolution="1w">1w</button>
+      <button class="resolution-btn" data-resolution="1m">1m</button>
+    </div>
+
+    <h2>Network Traffic</h2>
     <div class="chart-container">
-      <canvas id="trafficChart"></canvas>
+      <canvas id="networkChart"></canvas>
+    </div>
+
+    <h2>Server Load</h2>
+    <div class="chart-container">
+      <canvas id="loadChart"></canvas>
     </div>
 
     <h2>VPN</h2>

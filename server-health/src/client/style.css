@@ -29,6 +29,35 @@ h2 {
   font-weight: 600;
 }
 
+.resolution-selector {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.resolution-btn {
+  padding: 6px 16px;
+  border: 1px solid #2b3948;
+  background: #161b22;
+  color: #e6edf3;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.resolution-btn:hover {
+  background: #1c2128;
+  border-color: #3b4956;
+}
+
+.resolution-btn.active {
+  background: #238636;
+  border-color: #2ea043;
+  color: #ffffff;
+}
+
 .chart-container {
   width: 100%;
   height: 250px;

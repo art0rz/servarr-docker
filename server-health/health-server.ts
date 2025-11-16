@@ -177,7 +177,7 @@ async function updateServicesSection() {
     load15: loadAvg.load15,
   };
 
-  const MAX_CHART_POINTS = 60; // Keep last 60 data points (1 minute at 1s intervals)
+  const MAX_CHART_POINTS = 3600; // Keep last 3600 data points (1 hour at 1s intervals)
   const updatedChartData = [...healthCache.chartData, newDataPoint];
   if (updatedChartData.length > MAX_CHART_POINTS) {
     updatedChartData.shift(); // Remove oldest point

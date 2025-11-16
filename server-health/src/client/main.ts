@@ -1,9 +1,9 @@
 import type { HealthData } from './types';
 import { renderSummary, renderVpnCard, renderServiceCard, renderCheckCard } from './components';
-import { initChart, updateChart } from './chart';
+import { initNetworkChart, initLoadChart, updateCharts, setResolution, type TimeResolution } from './chart';
 import './style.css';
 
-let chartInitialized = false;
+let chartsInitialized = false;
 
 // Main load function
 async function loadHealth() {
@@ -20,22 +20,24 @@ async function loadHealth() {
       summaryEl.innerHTML = renderSummary(data);
     }
 
-    // Initialize chart on first load
-    if (!chartInitialized) {
-      const canvas = document.getElementById('trafficChart') as HTMLCanvasElement | null;
-      if (canvas !== null) {
-        initChart(canvas);
-        chartInitialized = true;
+    // Initialize charts on first load
+    if (!chartsInitialized) {
+      const networkCanvas = document.getElementById('networkChart') as HTMLCanvasElement | null;
+      const loadCanvas = document.getElementById('loadChart') as HTMLCanvasElement | null;
+      if (networkCanvas !== null && loadCanvas !== null) {
+        initNetworkChart(networkCanvas);
+        initLoadChart(loadCanvas);
+        chartsInitialized = true;
       }
     }
 
-    // Update chart with latest data
-    if (chartInitialized && data.chartData.length > 0) {
-      updateChart(data.chartData);
+    // Update charts with latest data
+    if (chartsInitialized && data.chartData.length > 0) {
+      updateCharts(data.chartData);
     }
 
     // Update VPN section - hide if VPN is disabled
-    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(2)');
+    const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(4)');
     const vpnDivEl = document.getElementById('vpn');
 
     if (vpnSectionEl !== null && vpnDivEl !== null) {
@@ -57,7 +59,7 @@ async function loadHealth() {
     }
 
     // Update checks section
-    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(4)');
+    const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(6)');
     const checksDivEl = document.getElementById('checks');
 
     if (checksSectionEl !== null && checksDivEl !== null) {
@@ -82,6 +84,24 @@ function refresh() {
 
 // Make refresh function globally available
 (window as unknown as { refresh: () => void }).refresh = refresh;
+
+// Set up resolution selector
+document.addEventListener('DOMContentLoaded', () => {
+  const resolutionButtons = document.querySelectorAll('.resolution-btn');
+  resolutionButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const resolution = (button as HTMLElement).dataset['resolution'] as TimeResolution;
+
+      // Update active state
+      resolutionButtons.forEach(btn => { btn.classList.remove('active'); });
+      button.classList.add('active');
+
+      // Set resolution and trigger chart update
+      setResolution(resolution);
+      void loadHealth();
+    });
+  });
+});
 
 // Initial load and auto-refresh
 void loadHealth();
