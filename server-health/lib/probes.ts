@@ -1,4 +1,4 @@
-import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer, type CommandResult } from './docker';
+import { dockerInspect, dockerEnvMap, getEgressIP, getContainerLogs, readFileFromContainer } from './docker';
 import { loadCrossSeedStats, type QbitCredentials } from './config';
 
 interface HttpOptions {
@@ -6,18 +6,18 @@ interface HttpOptions {
   timeout?: number;
 }
 
-function arrHeaders(apiKey: string | null): string[] {
+function arrHeaders(apiKey: string | null) {
   return apiKey !== null ? [`X-Api-Key: ${apiKey}`] : [];
 }
 
-function qbitHeaders(baseUrl: string, extras: string[] = []): string[] {
+function qbitHeaders(baseUrl: string, extras: string[] = []) {
   return [`Referer: ${baseUrl}/`, `Origin: ${baseUrl}`, ...extras];
 }
 
 /**
  * Convert header array to Headers object
  */
-function buildHeaders(headerList: string[] = []): Headers {
+function buildHeaders(headerList: string[] = []) {
   const headers = new Headers();
   for (const header of headerList) {
     const separatorIndex = header.indexOf(':');
@@ -38,7 +38,7 @@ async function httpRequest(
   method: 'GET' | 'POST',
   options: HttpOptions = {},
   body?: string
-): Promise<CommandResult> {
+) {
   const timeout = (options.timeout ?? (method === 'GET' ? 3 : 4)) * 1000;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => { controller.abort(); }, timeout);
@@ -74,14 +74,14 @@ async function httpRequest(
 /**
  * Make a GET request using native fetch
  */
-async function httpGet(url: string, options: HttpOptions = {}): Promise<CommandResult> {
+async function httpGet(url: string, options: HttpOptions = {}) {
   return httpRequest(url, 'GET', options);
 }
 
 /**
  * Make a POST request using native fetch
  */
-async function httpPost(url: string, body: unknown, options: HttpOptions = {}): Promise<CommandResult> {
+async function httpPost(url: string, body: unknown, options: HttpOptions = {}) {
   const headers = ['Content-Type: application/json', ...(options.headers ?? [])];
   return httpRequest(url, 'POST', { ...options, headers }, JSON.stringify(body));
 }
@@ -98,7 +98,7 @@ interface BaseProbeResult {
 /**
  * Generic probe for *arr services (Sonarr, Radarr, Prowlarr, Bazarr)
  */
-async function probeArrService(name: string, url: string | undefined, headers: string[], apiVersion = 'v3'): Promise<BaseProbeResult> {
+async function probeArrService(name: string, url: string | undefined, headers: string[], apiVersion = 'v3') {
   if (url === undefined) return { name, ok: false, reason: 'container not found' };
 
   const status = await httpGet(`${url}/api/${apiVersion}/system/status`, { headers });
@@ -488,7 +488,7 @@ const COOKIE_CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minutes
 /**
  * Login to qBittorrent and get session cookie
  */
-async function qbitLogin(url: string, auth: QbitCredentials): Promise<string | null> {
+async function qbitLogin(url: string, auth: QbitCredentials) {
   const payload = `username=${encodeURIComponent(auth.username)}&password=${encodeURIComponent(auth.password)}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => { controller.abort(); }, 4000);
@@ -535,7 +535,7 @@ async function qbitLogin(url: string, auth: QbitCredentials): Promise<string | n
 /**
  * Get cached qBittorrent cookie or refresh if expired
  */
-async function getQbitCookie(url: string, auth: QbitCredentials): Promise<string | null> {
+async function getQbitCookie(url: string, auth: QbitCredentials) {
   // Check if we have a valid cached cookie for this URL
   if (
     qbitCookieCache !== null &&
@@ -549,14 +549,7 @@ async function getQbitCookie(url: string, auth: QbitCredentials): Promise<string
   return await qbitLogin(url, auth);
 }
 
-interface QbitStats {
-  dl: number | null;
-  up: number | null;
-  total: number | null;
-  listenPort: number | null;
-}
-
-async function fetchQbitStats(url: string, cookie: string): Promise<QbitStats | null> {
+async function fetchQbitStats(url: string, cookie: string) {
   const headers = qbitHeaders(url, [`Cookie: SID=${cookie}`]);
   const [transfer, torrents, prefs] = await Promise.all([
     httpGet(`${url}/api/v2/transfer/info`, { headers, timeout: 4 }),
@@ -619,7 +612,7 @@ export interface CheckResult {
   detail: string;
 }
 
-async function checkArrDownloadClients(label: string, url: string | undefined, apiKey: string | null): Promise<CheckResult> {
+async function checkArrDownloadClients(label: string, url: string | undefined, apiKey: string | null) {
   if (url === undefined) return { name: label, ok: false, detail: 'service URL unavailable' };
   if (apiKey === null) return { name: label, ok: false, detail: 'API key unavailable' };
 
