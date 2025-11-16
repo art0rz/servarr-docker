@@ -564,9 +564,9 @@ async function fetchQbitStats(url: string, cookie: string) {
 
   if (transfer.ok) {
     try {
-      const data = JSON.parse(transfer.out) as { dlspeed?: unknown; upspeed?: unknown };
-      dl = typeof data.dlspeed === 'number' ? data.dlspeed : null;
-      up = typeof data.upspeed === 'number' ? data.upspeed : null;
+      const data = JSON.parse(transfer.out) as { dl_info_speed?: unknown; up_info_speed?: unknown };
+      dl = typeof data.dl_info_speed === 'number' ? data.dl_info_speed : null;
+      up = typeof data.up_info_speed === 'number' ? data.up_info_speed : null;
     } catch {
       // Ignore parse errors
     }
