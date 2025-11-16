@@ -14,6 +14,17 @@ export default tseslint.config(
   ...tseslint.configs.stylisticTypeChecked,
   {
     languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearTimeout: 'readonly',
+        clearInterval: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        Buffer: 'readonly',
+      },
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,

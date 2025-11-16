@@ -21,6 +21,10 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
 
+    /* JavaScript Support */
+    "allowJs": true,
+    "checkJs": false,
+
     /* Type Checking - Strict Mode */
     "strict": true,
     "noUncheckedIndexedAccess": true,
