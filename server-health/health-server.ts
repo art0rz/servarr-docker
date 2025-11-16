@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 
 import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials } from './lib/config';
+import { getLoadAverage } from './lib/system';
 import {
   probeGluetun,
   probeQbitEgress,
@@ -56,6 +57,9 @@ interface ChartDataPoint {
   timestamp: number;
   downloadRate: number;
   uploadRate: number;
+  load1: number;
+  load5: number;
+  load15: number;
 }
 
 interface HealthCache {
@@ -158,15 +162,19 @@ async function updateServicesSection() {
   ];
   const services = await Promise.all(probes);
 
-  // Track upload/download rates for charts
+  // Track upload/download rates and load average for charts
   const qbitService = services.find(s => s.name === 'qBittorrent') as QbitProbeResult | undefined;
   const downloadRate = qbitService?.dl ?? 0;
   const uploadRate = qbitService?.up ?? 0;
+  const loadAvg = await getLoadAverage();
 
   const newDataPoint: ChartDataPoint = {
     timestamp: Date.now(),
     downloadRate,
     uploadRate,
+    load1: loadAvg.load1,
+    load5: loadAvg.load5,
+    load15: loadAvg.load15,
   };
 
   const MAX_CHART_POINTS = 60; // Keep last 60 data points (1 minute at 1s intervals)

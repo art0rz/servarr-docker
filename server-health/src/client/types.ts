@@ -45,6 +45,9 @@ export interface ChartDataPoint {
   timestamp: number;
   downloadRate: number;
   uploadRate: number;
+  load1: number;
+  load5: number;
+  load15: number;
 }
 
 export interface HealthData {

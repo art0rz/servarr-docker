@@ -18,6 +18,7 @@ export function initChart(canvasElement: HTMLCanvasElement) {
           backgroundColor: 'rgba(75, 192, 192, 0.2)',
           fill: true,
           tension: 0.4,
+          yAxisID: 'y',
         },
         {
           label: 'Upload (MB/s)',
@@ -26,6 +27,16 @@ export function initChart(canvasElement: HTMLCanvasElement) {
           backgroundColor: 'rgba(255, 99, 132, 0.2)',
           fill: true,
           tension: 0.4,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Load (1m)',
+          data: [],
+          borderColor: 'rgb(255, 206, 86)',
+          backgroundColor: 'rgba(255, 206, 86, 0.2)',
+          fill: true,
+          tension: 0.4,
+          yAxisID: 'y1',
         },
       ],
     },
@@ -38,12 +49,35 @@ export function initChart(canvasElement: HTMLCanvasElement) {
           display: false,
         },
         y: {
+          type: 'linear',
+          position: 'left',
           beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Network (MB/s)',
+            color: '#c9d1d9',
+          },
           ticks: {
             color: '#c9d1d9',
           },
           grid: {
             color: 'rgba(255, 255, 255, 0.1)',
+          },
+        },
+        y1: {
+          type: 'linear',
+          position: 'right',
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Load Avg',
+            color: '#c9d1d9',
+          },
+          ticks: {
+            color: '#c9d1d9',
+          },
+          grid: {
+            drawOnChartArea: false,
           },
         },
       },
@@ -59,6 +93,11 @@ export function initChart(canvasElement: HTMLCanvasElement) {
               const label = context.dataset.label ?? '';
               const value = context.parsed.y;
               if (value === null) return label;
+
+              // Different formatting for load vs network data
+              if (label.includes('Load')) {
+                return `${label}: ${value.toFixed(2)}`;
+              }
               return `${label}: ${value.toFixed(2)} MB/s`;
             },
           },
@@ -85,12 +124,19 @@ export function updateChart(data: Array<ChartDataPoint>) {
     y: point.uploadRate / 1024 / 1024, // Convert bytes to MB
   }));
 
+  const loadData = data.map((point, index) => ({
+    x: index,
+    y: point.load1, // 1-minute load average
+  }));
+
   const downloadDataset = chartInstance.data.datasets[0];
   const uploadDataset = chartInstance.data.datasets[1];
+  const loadDataset = chartInstance.data.datasets[2];
 
-  if (downloadDataset !== undefined && uploadDataset !== undefined) {
+  if (downloadDataset !== undefined && uploadDataset !== undefined && loadDataset !== undefined) {
     downloadDataset.data = downloadData;
     uploadDataset.data = uploadData;
+    loadDataset.data = loadData;
     chartInstance.update('none'); // Update without animation for smooth real-time updates
   }
 }
