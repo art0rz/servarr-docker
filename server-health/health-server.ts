@@ -92,7 +92,48 @@ let healthCache: HealthCache = {
 };
 
 app.get('/api/health', (_req: Request, res: Response) => {
-  res.json(healthCache);
+  // Send health data without chart data to keep response small
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { chartData, ...healthWithoutCharts } = healthCache;
+  res.json(healthWithoutCharts);
+});
+
+// Separate endpoint for chart data with compact format
+app.get('/api/charts', (_req: Request, res: Response) => {
+  const data = healthCache.chartData;
+  if (data.length === 0) {
+    res.json({ startTime: 0, interval: 1000, dataPoints: 0, services: [], downloadRate: [], uploadRate: [], load1: [], responseTimes: {} });
+    return;
+  }
+
+  // Delta-encode: just send start time and interval (1000ms)
+  const startTime = data[0]?.timestamp ?? Date.now();
+  const interval = 1000; // 1 second intervals
+
+  // Quantize response times to nearest 10ms to reduce size
+  const allServices = new Set<string>();
+  for (const point of data) {
+    for (const service of Object.keys(point.responseTimes)) {
+      allServices.add(service);
+    }
+  }
+
+  const compactResponseTimes: Record<string, Array<number>> = {};
+  for (const service of allServices) {
+    compactResponseTimes[service] = data.map(p => Math.round((p.responseTimes[service] ?? 0) / 10)); // Quantize to 10ms
+  }
+
+  res.json({
+    startTime,
+    interval,
+    dataPoints: data.length,
+    services: Array.from(allServices),
+    // Arrays are more compact than objects
+    downloadRate: data.map(p => Math.round(p.downloadRate)),
+    uploadRate: data.map(p => Math.round(p.uploadRate)),
+    load1: data.map(p => Math.round(p.load1 * 100) / 100), // 2 decimal places
+    responseTimes: compactResponseTimes, // Quantized to 10ms buckets
+  });
 });
 
 function resolveGitRef() {

@@ -1,9 +1,33 @@
-import type { HealthData } from './types';
+import type { HealthData, CompactChartData, ChartDataPoint } from './types';
 import { renderSummary, renderVpnCard, renderServiceCard, renderCheckCard } from './components';
 import { initNetworkChart, initLoadChart, initResponseTimeChart, updateCharts, setResolution, type TimeResolution } from './chart';
 import './style.css';
 
 let chartsInitialized = false;
+let chartData: Array<ChartDataPoint> = [];
+
+// Decompress compact chart data format
+function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
+  const result: Array<ChartDataPoint> = [];
+  for (let i = 0; i < compact.dataPoints; i++) {
+    const responseTimes: Record<string, number> = {};
+    for (const service of compact.services) {
+      const quantized = compact.responseTimes[service]?.[i] ?? 0;
+      responseTimes[service] = quantized * 10; // De-quantize from 10ms buckets
+    }
+
+    result.push({
+      timestamp: compact.startTime + (i * compact.interval),
+      downloadRate: compact.downloadRate[i] ?? 0,
+      uploadRate: compact.uploadRate[i] ?? 0,
+      load1: compact.load1[i] ?? 0,
+      load5: 0, // Not sent in compact format (not used in charts)
+      load15: 0, // Not sent in compact format (not used in charts)
+      responseTimes,
+    });
+  }
+  return result;
+}
 
 // Main load function
 async function loadHealth() {
@@ -33,9 +57,9 @@ async function loadHealth() {
       }
     }
 
-    // Update charts with latest data
-    if (chartsInitialized && data.chartData.length > 0) {
-      updateCharts(data.chartData);
+    // Update charts with cached data
+    if (chartsInitialized && chartData.length > 0) {
+      updateCharts(chartData);
     }
 
     // Update VPN section - hide if VPN is disabled
@@ -80,8 +104,24 @@ async function loadHealth() {
   }
 }
 
+async function loadChartData() {
+  try {
+    const response = await fetch('/api/charts');
+    const compact = await response.json() as CompactChartData;
+    chartData = decompressChartData(compact);
+
+    // Update charts if initialized
+    if (chartsInitialized && chartData.length > 0) {
+      updateCharts(chartData);
+    }
+  } catch (error) {
+    console.error('Failed to load chart data:', error);
+  }
+}
+
 function refresh() {
   void loadHealth();
+  void loadChartData();
 }
 
 // Make refresh function globally available
@@ -100,11 +140,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Set resolution and trigger chart update
       setResolution(resolution);
-      void loadHealth();
+      if (chartData.length > 0) {
+        updateCharts(chartData);
+      }
     });
   });
 });
 
 // Initial load and auto-refresh
 void loadHealth();
+void loadChartData();
+
+// Refresh health status every 3s, chart data every 10s
 setInterval(() => { void loadHealth(); }, 3000);
+setInterval(() => { void loadChartData(); }, 10000);

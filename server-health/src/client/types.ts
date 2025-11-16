@@ -57,9 +57,19 @@ export interface HealthData {
   services: Array<ServiceProbeResult>;
   checks: Array<CheckResult>;
   nets: Array<never>;
-  chartData: Array<ChartDataPoint>;
   updatedAt: string | null;
   updating: boolean;
   error: string | null;
   gitRef: string;
+}
+
+export interface CompactChartData {
+  startTime: number;
+  interval: number;
+  dataPoints: number;
+  services: Array<string>;
+  downloadRate: Array<number>;
+  uploadRate: Array<number>;
+  load1: Array<number>;
+  responseTimes: Record<string, Array<number>>; // Quantized to 10ms
 }
