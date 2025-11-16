@@ -31,3 +31,34 @@ jobs:
         env:
           CI: true
         run: ./bootstrap.sh --quickstart --non-interactive --dry-run
+
+  server-health:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server-health
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: server-health/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test:run
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run type check
+        run: npm run type-check
+
+      - name: Build project
+        run: npm run build
