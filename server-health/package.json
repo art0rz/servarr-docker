@@ -4,7 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node health-server.js"
+    "start": "node health-server.js",
+    "dev:server": "tsc --watch",
+    "dev:client": "vite",
+    "build:server": "tsc",
+    "build:client": "vite build",
+    "build": "npm run build:server && npm run build:client",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "type-check": "tsc --noEmit && tsc --project tsconfig.client.json --noEmit",
+    "check": "npm run lint && npm run type-check"
   },
   "dependencies": {
     "chart.js": "^4.5.1",
