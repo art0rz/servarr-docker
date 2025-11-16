@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Stack Health</title>
+</head>
+<body>
+  <header>
+    <strong>Stack Health</strong>
+    <button class="btn" onclick="window.refresh()">Refresh</button>
+  </header>
+
+  <main>
+    <div id="summary"></div>
+
+    <h2>VPN</h2>
+    <div class="grid" id="vpn"></div>
+
+    <h2>Services</h2>
+    <div class="grid" id="services"></div>
+
+    <h2>Checks</h2>
+    <div class="grid" id="checks"></div>
+  </main>
+
+  <script type="module" src="/main.ts"></script>
+</body>
+</html>

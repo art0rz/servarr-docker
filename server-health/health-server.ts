@@ -1,5 +1,4 @@
 import express, { type Request, type Response } from 'express';
-import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -213,15 +212,8 @@ startWatcher('vpn', updateVpnSection, HEALTH_INTERVAL_MS);
 startWatcher('services', updateServicesSection, HEALTH_INTERVAL_MS);
 startWatcher('checks', updateChecksSection, HEALTH_INTERVAL_MS * 2);
 
-app.get('/', async (_req: Request, res: Response) => {
-  try {
-    const html = await readFile(join(__dirname, 'lib', 'ui.html'), 'utf-8');
-    res.type('html').send(html);
-  } catch (error) {
-    console.error('Failed to load UI:', error);
-    res.status(500).send('Failed to load UI');
-  }
-});
+// Serve static files from the built client
+app.use(express.static(join(__dirname, '..', 'client')));
 
 app.listen(PORT, () => {
   console.log(`Health server listening on :${PORT}`);

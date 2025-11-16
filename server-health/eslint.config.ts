@@ -7,7 +7,6 @@ const config: FlatConfig.ConfigArray = [
     ignores: [
       'dist/**',
       'node_modules/**',
-      'src/client/**',
     ],
   },
   eslint.configs.recommended,
@@ -25,9 +24,11 @@ const config: FlatConfig.ConfigArray = [
         __dirname: 'readonly',
         __filename: 'readonly',
         Buffer: 'readonly',
+        window: 'readonly',
+        document: 'readonly',
       },
       parserOptions: {
-        projectService: true,
+        project: ['./tsconfig.json', './tsconfig.client.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
