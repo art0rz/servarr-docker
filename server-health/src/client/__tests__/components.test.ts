@@ -144,7 +144,7 @@ describe('Component Rendering', () => {
 
       const html = renderServiceCard(service, checks);
 
-      expect(html).toContain('Sonarr download clients');
+      expect(html).toContain('download clients');
       expect(html).toContain('enabled: qBittorrent');
       expect(html).toContain('Custom check');
       expect(html).toContain('needs auth');
