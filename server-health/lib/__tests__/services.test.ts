@@ -14,6 +14,7 @@ describe('service discovery', () => {
   beforeEach(() => {
     Object.keys(process.env).forEach(key => {
       if (!(key in ORIGINAL_ENV)) {
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
         delete process.env[key];
       }
     });
@@ -24,29 +25,29 @@ describe('service discovery', () => {
   });
 
   it('uses environment ports when provided', async () => {
-    process.env.USE_VPN = 'false';
-    process.env.SONARR_PORT = '9100';
-    process.env.QBIT_WEBUI = '8112';
+    process.env['USE_VPN'] = 'false';
+    process.env['SONARR_PORT'] = '9100';
+    process.env['QBIT_WEBUI'] = '8112';
 
-    mockedGetContainerIP.mockImplementation(async (name: string) => {
-      if (name === 'sonarr') return '172.18.0.5';
-      if (name === 'qbittorrent') return '172.18.0.8';
-      return null;
+    mockedGetContainerIP.mockImplementation((name: string) => {
+      if (name === 'sonarr') return Promise.resolve('172.18.0.5');
+      if (name === 'qbittorrent') return Promise.resolve('172.18.0.8');
+      return Promise.resolve(null);
     });
 
     const urls = await discoverServices();
 
-    expect(urls.sonarr).toBe('http://172.18.0.5:9100');
-    expect(urls.qbittorrent).toBe('http://172.18.0.8:8112');
+    expect(urls['sonarr']).toBe('http://172.18.0.5:9100');
+    expect(urls['qbittorrent']).toBe('http://172.18.0.8:8112');
   });
 
   it('switches to gluetun when VPN is enabled', async () => {
-    process.env.USE_VPN = 'true';
-    process.env.QBIT_WEBUI = '9000';
+    process.env['USE_VPN'] = 'true';
+    process.env['QBIT_WEBUI'] = '9000';
 
-    mockedGetContainerIP.mockImplementation(async (name: string) => {
-      if (name === 'gluetun') return '172.18.0.20';
-      return null;
+    mockedGetContainerIP.mockImplementation((name: string): Promise<string | null> => {
+      if (name === 'gluetun') return Promise.resolve('172.18.0.20');
+      return Promise.resolve(null);
     });
 
     const urls = await discoverServices();

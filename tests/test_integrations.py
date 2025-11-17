@@ -65,7 +65,10 @@ class IntegrationConfigureTests(unittest.TestCase):
             with (
                 patch("servarr_bootstrap.tasks.integrations.QbitClient") as qbit_cls,
                 patch("servarr_bootstrap.tasks.integrations._retry") as retry,
-                patch("servarr_bootstrap.tasks.integrations._sync_forwarded_port", return_value=("done", "Port")) as sync,
+                patch(
+                    "servarr_bootstrap.tasks.integrations._sync_forwarded_port",
+                    return_value=("done", "Port")
+                ) as sync,
             ):
                 instance = MagicMock()
                 instance.ensure_credentials.return_value = True
@@ -86,7 +89,6 @@ class IntegrationConfigureTests(unittest.TestCase):
             state = IntegrationState(arr_api_keys={"sonarr": "s-key", "radarr": "r-key"})
 
             with patch("servarr_bootstrap.tasks.integrations.CrossSeedConfigurator") as configurator:
-                instance = configurator.return_value
                 status, detail = _configure_cross_seed(ctx, state)
 
             self.assertEqual(status, "done")

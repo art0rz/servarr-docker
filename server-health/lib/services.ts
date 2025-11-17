@@ -24,16 +24,16 @@ function buildServiceConfig(): Record<string, ServiceConfig> {
   };
 
   if (isVpnEnabled()) {
-    base.gluetun = { network: `${PROJECT}_default`, envPort: 'QBIT_WEBUI', defaultPort: 8080 };
+    base['gluetun'] = { network: `${PROJECT}_default`, envPort: 'QBIT_WEBUI', defaultPort: 8080 };
   } else {
-    base.qbittorrent = { network: `${PROJECT}_media`, envPort: 'QBIT_WEBUI', defaultPort: 8080 };
+    base['qbittorrent'] = { network: `${PROJECT}_media`, envPort: 'QBIT_WEBUI', defaultPort: 8080 };
   }
 
   return base;
 }
 
 function resolvePort(envValue: string | undefined, fallback: number): number {
-  if (!envValue) {
+  if (envValue === undefined) {
     return fallback;
   }
   const parsed = Number.parseInt(envValue, 10);
