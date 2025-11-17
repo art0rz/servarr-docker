@@ -49,6 +49,7 @@ export interface ChartDataPoint {
   load5: number;
   load15: number;
   responseTimes: Record<string, number>; // service name -> response time in ms
+  memoryUsage: Record<string, number>; // container name -> memory usage in MB
 }
 
 export interface HealthData {
@@ -66,9 +67,11 @@ export interface HealthData {
 export interface CompactChartData {
   dataPoints: number;
   services: Array<string>;
+  containers: Array<string>;
   timestamps: Array<number>;
   downloadRate: Array<number>;
   uploadRate: Array<number>;
   load1: Array<number>;
   responseTimes: Record<string, Array<number>>; // Quantized to 10ms
+  memoryUsage: Record<string, Array<number>>; // Memory in MB
 }

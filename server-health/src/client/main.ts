@@ -1,6 +1,6 @@
 import type { HealthData, CompactChartData, ChartDataPoint } from './types';
 import { renderSummary, renderVpnCard, renderServiceCard, renderCheckCard } from './components';
-import { initNetworkChart, initLoadChart, initResponseTimeChart, updateCharts, setResolution, type TimeResolution } from './chart';
+import { initNetworkChart, initLoadChart, initResponseTimeChart, initMemoryChart, updateCharts, setResolution, type TimeResolution } from './chart';
 import './style.css';
 
 let chartsInitialized = false;
@@ -19,6 +19,11 @@ function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
       responseTimes[service] = quantized * 10; // De-quantize from 10ms buckets
     }
 
+    const memoryUsage: Record<string, number> = {};
+    for (const container of compact.containers) {
+      memoryUsage[container] = compact.memoryUsage[container]?.[i] ?? 0; // Memory in MB
+    }
+
     result.push({
       timestamp: compact.timestamps[i] ?? Date.now(),
       downloadRate: compact.downloadRate[i] ?? 0,
@@ -27,6 +32,7 @@ function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
       load5: 0, // Not sent in compact format (not used in charts)
       load15: 0, // Not sent in compact format (not used in charts)
       responseTimes,
+      memoryUsage,
     });
   }
   return result;
@@ -50,10 +56,12 @@ function renderHealth() {
     const networkCanvas = document.getElementById('networkChart') as HTMLCanvasElement | null;
     const loadCanvas = document.getElementById('loadChart') as HTMLCanvasElement | null;
     const responseTimeCanvas = document.getElementById('responseTimeChart') as HTMLCanvasElement | null;
-    if (networkCanvas !== null && loadCanvas !== null && responseTimeCanvas !== null) {
+    const memoryCanvas = document.getElementById('memoryChart') as HTMLCanvasElement | null;
+    if (networkCanvas !== null && loadCanvas !== null && responseTimeCanvas !== null && memoryCanvas !== null) {
       initNetworkChart(networkCanvas);
       initLoadChart(loadCanvas);
       initResponseTimeChart(responseTimeCanvas);
+      initMemoryChart(memoryCanvas);
       chartsInitialized = true;
     }
   }

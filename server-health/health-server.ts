@@ -6,7 +6,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles, watchCrossSeedLog } from './lib/config';
-import { watchDockerEvents, watchGluetunPort, watchContainerStats } from './lib/docker';
+import { watchDockerEvents, watchGluetunPort, watchContainerStats, getAllContainerMemoryUsage } from './lib/docker';
 import { getLoadAverage } from './lib/system';
 import {
   probeGluetun,
@@ -65,6 +65,7 @@ interface ChartDataPoint {
   load5: number;
   load15: number;
   responseTimes: Record<string, number>; // service name -> response time in ms
+  memoryUsage: Record<string, number>; // container name -> memory usage in MB
 }
 
 interface HealthCache {
@@ -106,7 +107,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 app.get('/api/charts', (_req: Request, res: Response) => {
   const data = healthCache.chartData;
   if (data.length === 0) {
-    res.json({ dataPoints: 0, services: [], timestamps: [], downloadRate: [], uploadRate: [], load1: [], responseTimes: {} });
+    res.json({ dataPoints: 0, services: [], containers: [], timestamps: [], downloadRate: [], uploadRate: [], load1: [], responseTimes: {}, memoryUsage: {} });
     return;
   }
 
@@ -123,9 +124,23 @@ app.get('/api/charts', (_req: Request, res: Response) => {
     compactResponseTimes[service] = data.map(p => Math.round((p.responseTimes[service] ?? 0) / 10)); // Quantize to 10ms
   }
 
+  // Collect all containers with memory data
+  const allContainers = new Set<string>();
+  for (const point of data) {
+    for (const container of Object.keys(point.memoryUsage)) {
+      allContainers.add(container);
+    }
+  }
+
+  const compactMemoryUsage: Record<string, Array<number>> = {};
+  for (const container of allContainers) {
+    compactMemoryUsage[container] = data.map(p => p.memoryUsage[container] ?? 0); // Memory in MB
+  }
+
   res.json({
     dataPoints: data.length,
     services: Array.from(allServices),
+    containers: Array.from(allContainers),
     // Send actual timestamps from stored data
     timestamps: data.map(p => p.timestamp),
     // Arrays are more compact than objects
@@ -133,6 +148,7 @@ app.get('/api/charts', (_req: Request, res: Response) => {
     uploadRate: data.map(p => Math.round(p.uploadRate)),
     load1: data.map(p => Math.round(p.load1 * 100) / 100), // 2 decimal places
     responseTimes: compactResponseTimes, // Quantized to 10ms buckets
+    memoryUsage: compactMemoryUsage, // Memory in MB
   });
 });
 
@@ -259,6 +275,13 @@ async function updateServicesSection() {
   const uploadRate = qbitService?.up ?? 0;
   const loadAvg = await getLoadAverage();
 
+  // Collect memory usage from all watched containers
+  const allMemoryUsage = getAllContainerMemoryUsage();
+  const memoryUsage: Record<string, number> = {};
+  for (const [containerName, usage] of Object.entries(allMemoryUsage)) {
+    memoryUsage[containerName] = Math.round(usage.usedBytes / 1024 / 1024); // Convert to MB
+  }
+
   const newDataPoint: ChartDataPoint = {
     timestamp: Date.now(),
     downloadRate,
@@ -267,6 +290,7 @@ async function updateServicesSection() {
     load5: loadAvg.load5,
     load15: loadAvg.load15,
     responseTimes,
+    memoryUsage,
   };
 
   const MAX_CHART_POINTS = 360; // Keep last 360 data points (1 hour at 10s intervals)
@@ -355,11 +379,15 @@ watchCrossSeedLog();
 // Start Docker event watcher
 void watchDockerEvents();
 
-// Start Docker stats watcher for qBittorrent (for real-time network throughput)
-void watchContainerStats('qbittorrent');
+// Start Docker stats watchers for all main containers (network throughput + memory usage)
+const containersToWatch = ['qbittorrent', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'cross-seed', 'flaresolverr'];
+for (const container of containersToWatch) {
+  void watchContainerStats(container);
+}
 
-// Start Gluetun forwarded port watcher (only if VPN is enabled)
+// Also watch gluetun if VPN is enabled
 if (USE_VPN) {
+  void watchContainerStats('gluetun');
   void watchGluetunPort();
 }
 

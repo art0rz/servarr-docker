@@ -25,20 +25,28 @@ let eventStreamActive = false;
 let cachedForwardedPort = '';
 const GLUETUN_PORT_FILE = '/tmp/gluetun/forwarded_port';
 
-// Network stats cache
-interface NetworkStats {
+// Container stats cache (network + memory)
+interface ContainerStats {
   rxBytes: number;
   txBytes: number;
+  memoryUsageBytes: number;
+  memoryLimitBytes: number;
   timestamp: number;
   throughput: NetworkThroughput | null;
 }
 
-const networkStatsCache = new Map<string, NetworkStats>();
+const containerStatsCache = new Map<string, ContainerStats>();
 const activeStatsStreams = new Map<string, boolean>();
 
 export interface NetworkThroughput {
   downloadBytesPerSec: number;
   uploadBytesPerSec: number;
+}
+
+export interface MemoryUsage {
+  usedBytes: number;
+  limitBytes: number;
+  usedPercent: number;
 }
 
 export interface CommandResult {
@@ -447,6 +455,7 @@ export async function watchContainerStats(containerName: string) {
       try {
         const stats = JSON.parse(chunk.toString()) as {
           networks?: Record<string, { rx_bytes?: number; tx_bytes?: number }>;
+          memory_stats?: { usage?: number; limit?: number };
         };
 
         // Extract network stats (sum across all interfaces)
@@ -461,8 +470,12 @@ export async function watchContainerStats(containerName: string) {
           }
         }
 
+        // Extract memory stats
+        const memoryUsageBytes = stats.memory_stats?.usage ?? 0;
+        const memoryLimitBytes = stats.memory_stats?.limit ?? 0;
+
         const now = Date.now();
-        const previous = networkStatsCache.get(containerName);
+        const previous = containerStatsCache.get(containerName);
 
         // Calculate throughput if we have a previous sample
         let throughput: NetworkThroughput | null = null;
@@ -485,9 +498,11 @@ export async function watchContainerStats(containerName: string) {
         }
 
         // Store current stats with calculated throughput
-        networkStatsCache.set(containerName, {
+        containerStatsCache.set(containerName, {
           rxBytes,
           txBytes,
+          memoryUsageBytes,
+          memoryLimitBytes,
           timestamp: now,
           throughput,
         });
@@ -520,12 +535,55 @@ export async function watchContainerStats(containerName: string) {
  * Note: Call watchContainerStats(containerName) first to start the stats stream
  */
 export function getContainerNetworkThroughput(containerName: string): NetworkThroughput | null {
-  const cached = networkStatsCache.get(containerName);
+  const cached = containerStatsCache.get(containerName);
   if (cached === undefined) {
     return null;
   }
 
   return cached.throughput;
+}
+
+/**
+ * Get cached memory usage for a container
+ * Returns null if no stats available
+ * Note: Call watchContainerStats(containerName) first to start the stats stream
+ */
+export function getContainerMemoryUsage(containerName: string): MemoryUsage | null {
+  const cached = containerStatsCache.get(containerName);
+  if (cached === undefined) {
+    return null;
+  }
+
+  const usedBytes = cached.memoryUsageBytes;
+  const limitBytes = cached.memoryLimitBytes;
+  const usedPercent = limitBytes > 0 ? (usedBytes / limitBytes) * 100 : 0;
+
+  return {
+    usedBytes,
+    limitBytes,
+    usedPercent,
+  };
+}
+
+/**
+ * Get memory usage for all watched containers
+ */
+export function getAllContainerMemoryUsage(): Record<string, MemoryUsage> {
+  const result: Record<string, MemoryUsage> = {};
+
+  for (const [containerName, stats] of containerStatsCache) {
+    const usedBytes = stats.memoryUsageBytes;
+    const limitBytes = stats.memoryLimitBytes;
+    const usedPercent = limitBytes > 0 ? (usedBytes / limitBytes) * 100 : 0;
+
+    result[containerName] = {
+      usedBytes,
+      limitBytes,
+      usedPercent,
+    };
+  }
+
+  return result;
 }
 
 /**

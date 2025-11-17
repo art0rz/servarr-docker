@@ -8,6 +8,7 @@ Chart.register(LineController, LineElement, PointElement, LinearScale, TimeScale
 let networkChartInstance: Chart | null = null;
 let loadChartInstance: Chart | null = null;
 let responseTimeChartInstance: Chart | null = null;
+let memoryChartInstance: Chart | null = null;
 
 export type TimeResolution = '1h' | '1d' | '1w' | '1m';
 let currentResolution: TimeResolution = '1h';
@@ -21,6 +22,17 @@ const serviceColors: Record<string, { border: string; background: string }> = {
   'Cross-Seed': { border: 'rgb(231, 76, 60)', background: 'rgba(231, 76, 60, 0.2)' },
   'FlareSolverr': { border: 'rgb(149, 165, 166)', background: 'rgba(149, 165, 166, 0.2)' },
   'Recyclarr': { border: 'rgb(127, 140, 141)', background: 'rgba(127, 140, 141, 0.2)' },
+};
+
+const containerColors: Record<string, { border: string; background: string }> = {
+  'qbittorrent': { border: 'rgb(46, 204, 113)', background: 'rgba(46, 204, 113, 0.2)' },
+  'sonarr': { border: 'rgb(52, 152, 219)', background: 'rgba(52, 152, 219, 0.2)' },
+  'radarr': { border: 'rgb(241, 196, 15)', background: 'rgba(241, 196, 15, 0.2)' },
+  'prowlarr': { border: 'rgb(230, 126, 34)', background: 'rgba(230, 126, 34, 0.2)' },
+  'bazarr': { border: 'rgb(155, 89, 182)', background: 'rgba(155, 89, 182, 0.2)' },
+  'cross-seed': { border: 'rgb(231, 76, 60)', background: 'rgba(231, 76, 60, 0.2)' },
+  'flaresolverr': { border: 'rgb(149, 165, 166)', background: 'rgba(149, 165, 166, 0.2)' },
+  'gluetun': { border: 'rgb(100, 181, 246)', background: 'rgba(100, 181, 246, 0.2)' },
 };
 
 export function initNetworkChart(canvasElement: HTMLCanvasElement) {
@@ -268,6 +280,79 @@ export function initResponseTimeChart(canvasElement: HTMLCanvasElement) {
   return responseTimeChartInstance;
 }
 
+export function initMemoryChart(canvasElement: HTMLCanvasElement) {
+  const config: ChartConfiguration = {
+    type: 'line',
+    data: {
+      datasets: [],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        intersect: false,
+        mode: 'index',
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: {
+            displayFormats: {
+              minute: 'HH:mm',
+              hour: 'HH:mm',
+              day: 'MMM d',
+            },
+          },
+          ticks: {
+            color: '#c9d1d9',
+            maxRotation: 0,
+            autoSkip: true,
+            autoSkipPadding: 20,
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+          },
+        },
+        y: {
+          type: 'linear',
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Memory Usage (MB)',
+            color: '#c9d1d9',
+          },
+          ticks: {
+            color: '#c9d1d9',
+          },
+          grid: {
+            color: 'rgba(255, 255, 255, 0.1)',
+          },
+        },
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#c9d1d9',
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const label = context.dataset.label ?? '';
+              const value = context.parsed.y;
+              if (value === null) return label;
+              return `${label}: ${value.toFixed(0)} MB`;
+            },
+          },
+        },
+      },
+    },
+  };
+
+  memoryChartInstance = new Chart(canvasElement, config);
+  return memoryChartInstance;
+}
+
 function aggregateData(data: Array<ChartDataPoint>, resolution: TimeResolution): Array<ChartDataPoint> {
   if (resolution === '1h') {
     // For 1 hour, use all data points (we have up to 3600)
@@ -316,6 +401,21 @@ function aggregateData(data: Array<ChartDataPoint>, resolution: TimeResolution):
         : 0;
     }
 
+    // Aggregate memory usage
+    const allContainers = new Set<string>();
+    for (const point of points) {
+      for (const container of Object.keys(point.memoryUsage)) {
+        allContainers.add(container);
+      }
+    }
+    const avgMemoryUsage: Record<string, number> = {};
+    for (const container of allContainers) {
+      const containerMemory = points.map(p => p.memoryUsage[container] ?? 0).filter(m => m > 0);
+      avgMemoryUsage[container] = containerMemory.length > 0
+        ? containerMemory.reduce((sum, m) => sum + m, 0) / containerMemory.length
+        : 0;
+    }
+
     const avg = points.reduce((acc, p) => ({
       timestamp: p.timestamp,
       downloadRate: acc.downloadRate + p.downloadRate / points.length,
@@ -324,7 +424,8 @@ function aggregateData(data: Array<ChartDataPoint>, resolution: TimeResolution):
       load5: acc.load5 + p.load5 / points.length,
       load15: acc.load15 + p.load15 / points.length,
       responseTimes: avgResponseTimes,
-    }), { timestamp: points[0]?.timestamp ?? Date.now(), downloadRate: 0, uploadRate: 0, load1: 0, load5: 0, load15: 0, responseTimes: avgResponseTimes });
+      memoryUsage: avgMemoryUsage,
+    }), { timestamp: points[0]?.timestamp ?? Date.now(), downloadRate: 0, uploadRate: 0, load1: 0, load5: 0, load15: 0, responseTimes: avgResponseTimes, memoryUsage: avgMemoryUsage });
     aggregated.push(avg);
   }
 
@@ -336,7 +437,7 @@ export function setResolution(resolution: TimeResolution) {
 }
 
 export function updateCharts(data: Array<ChartDataPoint>) {
-  if (networkChartInstance === null || loadChartInstance === null || responseTimeChartInstance === null) return;
+  if (networkChartInstance === null || loadChartInstance === null || responseTimeChartInstance === null || memoryChartInstance === null) return;
 
   const aggregated = aggregateData(data, currentResolution);
 
@@ -420,4 +521,38 @@ export function updateCharts(data: Array<ChartDataPoint>) {
   }
 
   responseTimeChartInstance.update('none');
+
+  // Update memory chart
+  const allContainers = new Set<string>();
+  for (const point of aggregated) {
+    for (const container of Object.keys(point.memoryUsage)) {
+      allContainers.add(container);
+    }
+  }
+
+  // Create datasets for each container
+  const memoryDatasets = Array.from(allContainers).map(container => {
+    const color = containerColors[container] ?? { border: 'rgb(100, 100, 100)', background: 'rgba(100, 100, 100, 0.2)' };
+    return {
+      label: container,
+      data: aggregated.map((point) => ({
+        x: point.timestamp,
+        y: point.memoryUsage[container] ?? 0, // Memory in MB
+      })),
+      borderColor: color.border,
+      backgroundColor: color.background,
+      fill: false,
+      tension: 0.4,
+    };
+  });
+
+  memoryChartInstance.data.datasets = memoryDatasets;
+
+  // Update x-axis bounds
+  if (memoryChartInstance.options.scales?.['x'] !== undefined) {
+    memoryChartInstance.options.scales['x'].min = minTime;
+    memoryChartInstance.options.scales['x'].max = now;
+  }
+
+  memoryChartInstance.update('none');
 }
