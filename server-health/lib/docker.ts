@@ -25,6 +25,22 @@ let eventStreamActive = false;
 let cachedForwardedPort = '';
 const GLUETUN_PORT_FILE = '/tmp/gluetun/forwarded_port';
 
+// Network stats cache
+interface NetworkStats {
+  rxBytes: number;
+  txBytes: number;
+  timestamp: number;
+  throughput: NetworkThroughput | null;
+}
+
+const networkStatsCache = new Map<string, NetworkStats>();
+const activeStatsStreams = new Map<string, boolean>();
+
+export interface NetworkThroughput {
+  downloadBytesPerSec: number;
+  uploadBytesPerSec: number;
+}
+
 export interface CommandResult {
   ok: boolean;
   out: string;
@@ -408,6 +424,108 @@ export async function getContainerLogs(containerName: string, since?: string) {
 export async function readFileFromContainer(containerName: string, filePath: string) {
   const result = await execInContainer(containerName, ['cat', filePath]);
   return result.ok ? result.out : '';
+}
+
+/**
+ * Watch container stats stream (continuous updates ~1/sec)
+ */
+export async function watchContainerStats(containerName: string) {
+  // Check if already watching this container
+  if (activeStatsStreams.get(containerName) === true) {
+    console.log(`[docker] Stats stream already active for ${containerName}`);
+    return;
+  }
+
+  console.log(`[docker] Setting up stats stream for ${containerName}`);
+  activeStatsStreams.set(containerName, true);
+
+  try {
+    const container = docker.getContainer(containerName);
+    const stream = await container.stats({ stream: true }) as Readable;
+
+    stream.on('data', (chunk: Buffer) => {
+      try {
+        const stats = JSON.parse(chunk.toString()) as {
+          networks?: Record<string, { rx_bytes?: number; tx_bytes?: number }>;
+        };
+
+        // Extract network stats (sum across all interfaces)
+        let rxBytes = 0;
+        let txBytes = 0;
+
+        const networks = stats.networks as unknown;
+        if (networks !== null && networks !== undefined && typeof networks === 'object') {
+          for (const iface of Object.values(networks as Record<string, { rx_bytes?: number; tx_bytes?: number }>)) {
+            rxBytes += iface.rx_bytes ?? 0;
+            txBytes += iface.tx_bytes ?? 0;
+          }
+        }
+
+        const now = Date.now();
+        const previous = networkStatsCache.get(containerName);
+
+        // Calculate throughput if we have a previous sample
+        let throughput: NetworkThroughput | null = null;
+        if (previous !== undefined) {
+          const elapsedMs = now - previous.timestamp;
+          if (elapsedMs > 0) {
+            const elapsedSec = elapsedMs / 1000;
+            const downloadBytesPerSec = Math.max(0, (rxBytes - previous.rxBytes) / elapsedSec);
+            const uploadBytesPerSec = Math.max(0, (txBytes - previous.txBytes) / elapsedSec);
+
+            throughput = { downloadBytesPerSec, uploadBytesPerSec };
+
+            // Log if there's actual traffic (> 10 KB/s)
+            if (downloadBytesPerSec > 10240 || uploadBytesPerSec > 10240) {
+              const dlMBps = (downloadBytesPerSec / 1024 / 1024).toFixed(2);
+              const upMBps = (uploadBytesPerSec / 1024 / 1024).toFixed(2);
+              console.log(`[docker] ${containerName} stats: ↓ ${dlMBps} MB/s, ↑ ${upMBps} MB/s`);
+            }
+          }
+        }
+
+        // Store current stats with calculated throughput
+        networkStatsCache.set(containerName, {
+          rxBytes,
+          txBytes,
+          timestamp: now,
+          throughput,
+        });
+      } catch (error) {
+        console.error(`[docker] Failed to parse stats for ${containerName}:`, error);
+      }
+    });
+
+    stream.on('error', (error) => {
+      console.error(`[docker] Stats stream error for ${containerName}:`, error);
+      activeStatsStreams.delete(containerName);
+      // Reconnect after delay
+      setTimeout(() => { void watchContainerStats(containerName); }, 5000);
+    });
+
+    stream.on('end', () => {
+      console.log(`[docker] Stats stream ended for ${containerName}, reconnecting...`);
+      activeStatsStreams.delete(containerName);
+      setTimeout(() => { void watchContainerStats(containerName); }, 1000);
+    });
+  } catch (error) {
+    console.error(`[docker] Failed to start stats stream for ${containerName}:`, error);
+    activeStatsStreams.delete(containerName);
+  }
+}
+
+/**
+ * Get cached network throughput for a container (bytes/second)
+ * Returns null if no stats available or stream hasn't collected 2+ samples yet
+ * Note: Call watchContainerStats(containerName) first to start the stats stream
+ */
+export function getContainerNetworkThroughput(containerName: string): NetworkThroughput | null {
+  const cached = networkStatsCache.get(containerName);
+  if (cached === undefined) {
+    return null;
+  }
+
+  return cached.throughput;
 }
 
 /**

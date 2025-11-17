@@ -6,7 +6,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles, watchCrossSeedLog } from './lib/config';
-import { watchDockerEvents, watchGluetunPort } from './lib/docker';
+import { watchDockerEvents, watchGluetunPort, watchContainerStats } from './lib/docker';
 import { getLoadAverage } from './lib/system';
 import {
   probeGluetun,
@@ -354,6 +354,9 @@ watchCrossSeedLog();
 
 // Start Docker event watcher
 void watchDockerEvents();
+
+// Start Docker stats watcher for qBittorrent (for real-time network throughput)
+void watchContainerStats('qbittorrent');
 
 // Start Gluetun forwarded port watcher (only if VPN is enabled)
 if (USE_VPN) {

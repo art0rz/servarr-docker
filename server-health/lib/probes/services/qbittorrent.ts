@@ -2,7 +2,7 @@
  * Health probes for qBittorrent
  */
 
-import { getEgressIP } from '../../docker';
+import { getEgressIP, getContainerNetworkThroughput } from '../../docker';
 import { type QbitCredentials } from '../../config';
 import { httpGet, qbitHeaders, buildHeaders, parseJson } from '../http';
 import type {
@@ -58,13 +58,19 @@ export async function probeQbit(url: string | undefined, auth: QbitCredentials |
   let total: number | null = null;
   let listenPort: number | null = null;
 
+  // Get network throughput from Docker stats cache (populated by stats stream watcher)
+  const networkStats = getContainerNetworkThroughput('qbittorrent');
+  if (networkStats !== null) {
+    dl = networkStats.downloadBytesPerSec;
+    up = networkStats.uploadBytesPerSec;
+  }
+
+  // Get additional stats from qBittorrent API if authenticated
   if (ok && auth !== null && auth.username.length > 0 && auth.password.length > 0) {
     const cookie = await getQbitCookie(url, auth).catch(() => null);
     if (cookie !== null) {
       const stats = await fetchQbitStats(url, cookie);
       if (stats !== null) {
-        dl = stats.dl;
-        up = stats.up;
         total = stats.total;
         listenPort = stats.listenPort ?? null;
       }
@@ -175,23 +181,10 @@ async function getQbitCookie(url: string, auth: QbitCredentials) {
 
 async function fetchQbitStats(url: string, cookie: string) {
   const headers = qbitHeaders(url, [`Cookie: SID=${cookie}`]);
-  const [transfer, torrents, prefs] = await Promise.all([
-    httpGet(`${url}/api/v2/transfer/info`, { headers, timeout: 4 }),
+  const [torrents, prefs] = await Promise.all([
     httpGet(`${url}/api/v2/torrents/info?filter=all`, { headers, timeout: 5 }),
     httpGet(`${url}/api/v2/app/preferences`, { headers, timeout: 4 }),
   ]);
-
-  const dl = transfer.ok ? parseJson(transfer.out, (data) =>
-    typeof (data as { dl_info_speed?: unknown }).dl_info_speed === 'number'
-      ? (data as { dl_info_speed: number }).dl_info_speed
-      : null
-  ) : null;
-
-  const up = transfer.ok ? parseJson(transfer.out, (data) =>
-    typeof (data as { up_info_speed?: unknown }).up_info_speed === 'number'
-      ? (data as { up_info_speed: number }).up_info_speed
-      : null
-  ) : null;
 
   const total = torrents.ok ? parseJson(torrents.out, (data) =>
     Array.isArray(data) ? data.length : null
@@ -203,9 +196,9 @@ async function fetchQbitStats(url: string, cookie: string) {
       : null
   ) : null;
 
-  if (dl === null && up === null && total === null && listenPort === null) {
+  if (total === null && listenPort === null) {
     return null;
   }
 
-  return { dl, up, total, listenPort };
+  return { total, listenPort };
 }
