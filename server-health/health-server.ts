@@ -76,6 +76,7 @@ interface ChartDataPoint {
 interface HealthCache {
   vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null };
   qbitEgress: QbitEgressProbeResult | null;
+  qbitIngress: { hostPort: string; listenPort: number | null } | null;
   services: Array<ServiceProbeResult>;
   checks: Array<CheckResult>;
   nets: Array<never>;
@@ -91,6 +92,7 @@ let healthCache: HealthCache = {
   qbitEgress: USE_VPN
     ? { name: 'qBittorrent egress', container: 'qbittorrent', ok: false, vpnEgress: '' }
     : { name: 'qBittorrent egress', container: 'qbittorrent', ok: true, vpnEgress: 'VPN disabled' },
+  qbitIngress: null,
   services: [],
   checks: USE_VPN ? [] : [{ name: 'VPN status', ok: true, detail: 'disabled (no VPN configured)' }],
   nets: [],
@@ -440,6 +442,7 @@ async function updateChecksSection() {
   const qbitEgress = healthCache.qbitEgress;
   const qbitService = healthCache.services.find(s => s.name === 'qBittorrent') as QbitProbeResult | undefined;
   const checks: Array<CheckResult> = [];
+  let qbitIngress: HealthCache['qbitIngress'] = null;
 
   if (USE_VPN && 'running' in vpn) {
     const gluetunVpn = isFullGluetunResult(vpn) ? vpn : undefined;
@@ -449,11 +452,6 @@ async function updateChecksSection() {
     checks.push(
       { name: 'gluetun running', ok: vpn.running, detail: vpn.healthy !== null ? `health=${vpn.healthy}` : '' },
       {
-        name: 'gluetun forwarded port',
-        ok: pfExpected ? /^\d+$/.test(forwardedPort) : true,
-        detail: pfExpected ? (forwardedPort.length > 0 ? forwardedPort : 'pending') : 'disabled',
-      },
-      {
         name: 'qbittorrent egress via VPN',
         ok: qbitEgress?.vpnEgress !== undefined && qbitEgress.vpnEgress.length > 0,
         detail: qbitEgress?.vpnEgress !== undefined && qbitEgress.vpnEgress.length > 0 ? qbitEgress.vpnEgress : 'pending',
@@ -462,21 +460,20 @@ async function updateChecksSection() {
     );
 
     const vpnPort = parseInt(forwardedPort.length > 0 ? forwardedPort : '', 10);
-    let okPort = false;
-    let detail = '';
-    if (!Number.isInteger(vpnPort)) {
-      detail = `forwarded port invalid (${forwardedPort.length > 0 ? forwardedPort : 'missing'})`;
-    } else if (qbitService?.listenPort === null || qbitService?.listenPort === undefined) {
-      detail = 'qBittorrent listen port unavailable';
-    } else {
-      okPort = qbitService.listenPort === vpnPort;
-      detail = `vpn=${String(vpnPort)}, qbit=${String(qbitService.listenPort)}`;
-    }
-    checks.push({ name: 'qbittorrent port matches VPN forwarded port', ok: okPort, detail });
+    qbitIngress = {
+      hostPort: Number.isNaN(vpnPort) ? '' : String(vpnPort),
+      listenPort: qbitService?.listenPort ?? null,
+    };
   }
 
   if (!USE_VPN) {
     checks.push({ name: 'VPN status', ok: true, detail: 'disabled (no VPN configured)' });
+    if (qbitService) {
+      qbitIngress = {
+        hostPort: '',
+        listenPort: qbitService.listenPort ?? null,
+      };
+    }
   }
 
   const [integrationChecks, systemChecks] = await Promise.all([
@@ -492,7 +489,7 @@ async function updateChecksSection() {
     ]),
   ]);
 
-  publish({ checks: [...checks, ...integrationChecks, ...systemChecks] });
+  publish({ checks: [...checks, ...integrationChecks, ...systemChecks], qbitIngress });
 }
 
 // Load persisted chart data from disk

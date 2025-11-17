@@ -16,6 +16,11 @@ export interface ServiceProbeResult {
   detail?: string;
 }
 
+export interface QbitIngressInfo {
+  hostPort: string;
+  listenPort: number | null;
+}
+
 export interface GluetunProbeResult {
   name: string;
   container: string;
@@ -54,6 +59,7 @@ export interface ChartDataPoint {
 export interface HealthData {
   vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null };
   qbitEgress: QbitEgressProbeResult;
+  qbitIngress: QbitIngressInfo | null;
   services: Array<ServiceProbeResult>;
   checks: Array<CheckResult>;
   nets: Array<never>;

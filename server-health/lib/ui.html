@@ -156,9 +156,13 @@
       return `<div class="badge">${okCount} / ${total} checks passing</div>`;
     }
 
-    function renderVpnCard(vpn, qbitEgress) {
+    function renderVpnCard(vpn, qbitEgress, qbitIngress) {
       const v = vpn || {};
       const q = qbitEgress || {};
+      const ingress = qbitIngress || null;
+      const hostPort = ingress?.hostPort || '';
+      const listenPort = ingress?.listenPort ?? null;
+      const ingressOk = (hostPort.length > 0) || (listenPort !== null);
 
       return `
         <div class="card">
@@ -168,7 +172,6 @@
           <div><strong>Gluetun VPN</strong></div>
           <div class="tag">Running: ${v.running ? 'Yes' : 'No'}</div>
           <div class="tag">Egress IP: ${v.vpnEgress || 'Unknown'}</div>
-          <div class="tag">Forwarded Port: ${v.forwardedPort || 'None'}</div>
         </div>
         <div class="card">
           <div class="status ${q.ok ? 'ok' : 'fail'}">
@@ -177,6 +180,13 @@
           <div><strong>qBittorrent Egress</strong></div>
           <div class="tag">Egress IP: ${q.vpnEgress || 'Unknown'}</div>
         </div>
+        ${ingress ? `
+        <div class="card">
+          <div class="status ${ingressOk ? 'ok' : 'fail'}">Ingress</div>
+          <div><strong>qBittorrent Ingress</strong></div>
+          <div class="tag">Host Port: ${hostPort || 'pending'}</div>
+          <div class="tag">qBittorrent Port: ${listenPort !== null ? listenPort : 'Unknown'}</div>
+        </div>` : ''}
       `;
     }
 
@@ -277,7 +287,7 @@
         if (vpnEnabled) {
           vpnSection.style.display = 'block';
           vpnDiv.style.display = 'grid';
-          vpnDiv.innerHTML = renderVpnCard(data.vpn, data.qbitEgress);
+          vpnDiv.innerHTML = renderVpnCard(data.vpn, data.qbitEgress, data.qbitIngress || null);
         } else {
           vpnSection.style.display = 'none';
           vpnDiv.style.display = 'none';

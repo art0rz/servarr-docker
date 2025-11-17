@@ -1,4 +1,4 @@
-import type { HealthData, ServiceProbeResult, CheckResult, GluetunProbeResult, QbitEgressProbeResult } from './types';
+import type { HealthData, ServiceProbeResult, CheckResult, GluetunProbeResult, QbitEgressProbeResult, QbitIngressInfo } from './types';
 
 // Utility functions
 const escapeHtml = (str: string | number): string =>
@@ -37,9 +37,17 @@ export function renderSummary(data: HealthData): string {
   return `<div class="badge">${String(okCount)} / ${String(total)} checks passing</div>`;
 }
 
-export function renderVpnCard(vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null }, qbitEgress: QbitEgressProbeResult): string {
+export function renderVpnCard(
+  vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null },
+  qbitEgress: QbitEgressProbeResult,
+  qbitIngress: QbitIngressInfo | null,
+): string {
   const v = vpn as GluetunProbeResult;
   const q = qbitEgress;
+  const ingress = qbitIngress;
+  const ingressHost = ingress?.hostPort ?? '';
+  const ingressPort = ingress?.listenPort ?? null;
+  const ingressOk = (ingressHost.length > 0) || (ingressPort !== null);
 
   return `
     <div class="card">
@@ -49,7 +57,6 @@ export function renderVpnCard(vpn: GluetunProbeResult | { name: string; ok: bool
       <div><strong>Gluetun VPN</strong></div>
       <div class="tag">Running: ${v.running ? 'Yes' : 'No'}</div>
       <div class="tag">Egress IP: ${'vpnEgress' in v ? v.vpnEgress : 'Unknown'}</div>
-      <div class="tag">Forwarded Port: ${'forwardedPort' in v ? (v.forwardedPort.length > 0 ? v.forwardedPort : 'None') : 'None'}</div>
     </div>
     <div class="card">
       <div class="status ${q.ok ? 'ok' : 'fail'}">
@@ -58,6 +65,13 @@ export function renderVpnCard(vpn: GluetunProbeResult | { name: string; ok: bool
       <div><strong>qBittorrent Egress</strong></div>
       <div class="tag">Egress IP: ${q.vpnEgress.length > 0 ? q.vpnEgress : 'Unknown'}</div>
     </div>
+    ${ingress ? `
+    <div class="card">
+      <div class="status ${ingressOk ? 'ok' : 'fail'}">Ingress</div>
+      <div><strong>qBittorrent Ingress</strong></div>
+      <div class="tag">Host Port: ${ingressHost.length > 0 ? ingressHost : 'pending'}</div>
+      <div class="tag">qBittorrent Port: ${ingressPort !== null ? ingressPort : 'Unknown'}</div>
+    </div>` : ''}
   `;
 }
 

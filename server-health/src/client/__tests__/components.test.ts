@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderSummary, renderServiceCard, renderCheckCard, renderVpnCard } from '../components';
-import type { HealthData, ServiceProbeResult, CheckResult, GluetunProbeResult, QbitEgressProbeResult } from '../types';
+import type { HealthData, ServiceProbeResult, CheckResult, GluetunProbeResult, QbitEgressProbeResult, QbitIngressInfo } from '../types';
 
 describe('Component Rendering', () => {
   describe('renderSummary', () => {
@@ -231,12 +231,14 @@ describe('Component Rendering', () => {
         vpnEgress: '198.51.100.42',
       };
 
-      const html = renderVpnCard(vpn, qbitEgress);
+      const ingress: QbitIngressInfo = { hostPort: '12345', listenPort: 8080 };
+      const html = renderVpnCard(vpn, qbitEgress, ingress);
 
       expect(html).toContain('HEALTHY');
       expect(html).toContain('Running: Yes');
       expect(html).toContain('198.51.100.42');
-      expect(html).toContain('12345');
+      expect(html).toContain('Host Port: 12345');
+      expect(html).toContain('qBittorrent Port: 8080');
     });
 
     it('should handle VPN not running', () => {
@@ -258,7 +260,7 @@ describe('Component Rendering', () => {
         vpnEgress: '',
       };
 
-      const html = renderVpnCard(vpn, qbitEgress);
+      const html = renderVpnCard(vpn, qbitEgress, null);
 
       expect(html).toContain('Running: No');
       expect(html).toContain('status fail');

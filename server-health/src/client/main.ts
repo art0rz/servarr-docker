@@ -127,7 +127,7 @@ function renderHealth() {
     if (vpnEnabled) {
       vpnSectionEl.style.display = 'block';
       vpnDivEl.style.display = 'grid';
-      vpnDivEl.innerHTML = renderVpnCard(healthData.vpn, healthData.qbitEgress);
+      vpnDivEl.innerHTML = renderVpnCard(healthData.vpn, healthData.qbitEgress, healthData.qbitIngress ?? null);
     } else {
       vpnSectionEl.style.display = 'none';
       vpnDivEl.style.display = 'none';
