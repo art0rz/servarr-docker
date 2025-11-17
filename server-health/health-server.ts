@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from 'express';
-import { readFileSync } from 'node:fs';
+import { readFileSync, promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -43,6 +43,8 @@ const PORT = process.env['PORT'] ?? '3000';
 const HEALTH_INTERVAL_MS = parseInt(process.env['HEALTH_INTERVAL_MS'] ?? '10000', 10);
 const USE_VPN = process.env['USE_VPN'] === 'true';
 const GIT_REF = resolveGitRef();
+const CONFIG_ROOT = process.env['CONFIG_ROOT'] ?? '/config';
+const CHART_DATA_FILE = join(CONFIG_ROOT, 'chart-data.json');
 
 // WebSocket clients
 const wsClients = new Set<WebSocket>();
@@ -162,6 +164,38 @@ function resolveGitRef() {
     return result;
   } catch {
     return '';
+  }
+}
+
+async function saveChartData() {
+  try {
+    await fs.writeFile(CHART_DATA_FILE, JSON.stringify(healthCache.chartData), 'utf-8');
+    console.log(`[persistence] Saved ${String(healthCache.chartData.length)} chart data points to disk`);
+  } catch (error) {
+    console.error('[persistence] Failed to save chart data:', error);
+  }
+}
+
+async function loadChartData() {
+  try {
+    const raw = await fs.readFile(CHART_DATA_FILE, 'utf-8');
+    const data = JSON.parse(raw) as Array<ChartDataPoint>;
+
+    // Validate and filter data
+    const now = Date.now();
+    const MAX_AGE_MS = 3600000; // Keep last 1 hour
+    const validData = data.filter(point =>
+      typeof point.timestamp === 'number' &&
+      typeof point.downloadRate === 'number' &&
+      typeof point.uploadRate === 'number' &&
+      now - point.timestamp < MAX_AGE_MS
+    );
+
+    healthCache.chartData = validData;
+    console.log(`[persistence] Loaded ${String(validData.length)} chart data points from disk`);
+  } catch {
+    // File doesn't exist on first run, that's ok
+    console.log('[persistence] No existing chart data found (this is normal on first run)');
   }
 }
 
@@ -302,6 +336,9 @@ async function updateServicesSection() {
   // Update local cache with full chart data
   healthCache.chartData = updatedChartData;
 
+  // Save to disk (async, don't wait for it)
+  void saveChartData();
+
   // Broadcast services update and new chart point separately
   publish({ services });
 
@@ -369,6 +406,9 @@ async function updateChecksSection() {
 
   publish({ checks: [...checks, ...integrationChecks, ...systemChecks] });
 }
+
+// Load persisted chart data from disk
+void loadChartData();
 
 // Start file watchers for config files
 watchConfigFiles();
