@@ -204,7 +204,6 @@ describe('Component Rendering', () => {
         vpnEgress: '198.51.100.42',
         forwardedPort: '12345',
         pfExpected: true,
-        uiHostPort: '8080',
       };
 
       const qbitEgress: QbitEgressProbeResult = {
@@ -220,7 +219,6 @@ describe('Component Rendering', () => {
       expect(html).toContain('Running: Yes');
       expect(html).toContain('198.51.100.42');
       expect(html).toContain('12345');
-      expect(html).toContain('8080');
     });
 
     it('should handle VPN not running', () => {
@@ -233,7 +231,6 @@ describe('Component Rendering', () => {
         vpnEgress: '',
         forwardedPort: '',
         pfExpected: false,
-        uiHostPort: '',
       };
 
       const qbitEgress: QbitEgressProbeResult = {

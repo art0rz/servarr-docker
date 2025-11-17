@@ -25,7 +25,6 @@ export interface GluetunProbeResult {
   vpnEgress: string;
   forwardedPort: string;
   pfExpected: boolean;
-  uiHostPort: string;
 }
 
 export interface QbitEgressProbeResult {

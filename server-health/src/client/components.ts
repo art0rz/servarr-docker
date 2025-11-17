@@ -50,7 +50,6 @@ export function renderVpnCard(vpn: GluetunProbeResult | { name: string; ok: bool
       <div class="tag">Running: ${v.running ? 'Yes' : 'No'}</div>
       <div class="tag">Egress IP: ${'vpnEgress' in v ? v.vpnEgress : 'Unknown'}</div>
       <div class="tag">Forwarded Port: ${'forwardedPort' in v ? (v.forwardedPort.length > 0 ? v.forwardedPort : 'None') : 'None'}</div>
-      ${'uiHostPort' in v && v.uiHostPort.length > 0 ? `<div class="tag">WebUI Port: ${v.uiHostPort}</div>` : ''}
     </div>
     <div class="card">
       <div class="status ${q.ok ? 'ok' : 'fail'}">

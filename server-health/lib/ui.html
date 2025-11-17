@@ -169,7 +169,6 @@
           <div class="tag">Running: ${v.running ? 'Yes' : 'No'}</div>
           <div class="tag">Egress IP: ${v.vpnEgress || 'Unknown'}</div>
           <div class="tag">Forwarded Port: ${v.forwardedPort || 'None'}</div>
-          ${v.uiHostPort ? `<div class="tag">WebUI Port: ${v.uiHostPort}</div>` : ''}
         </div>
         <div class="card">
           <div class="status ${q.ok ? 'ok' : 'fail'}">

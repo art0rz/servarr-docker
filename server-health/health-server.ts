@@ -446,10 +446,8 @@ async function updateChecksSection() {
     const forwardedPort = gluetunVpn?.forwardedPort ?? '';
     const pfExpected = gluetunVpn?.pfExpected ?? false;
     const vpnEgressValue = gluetunVpn?.vpnEgress ?? '';
-    const uiHostPort = gluetunVpn?.uiHostPort ?? '';
     checks.push(
       { name: 'gluetun running', ok: vpn.running, detail: vpn.healthy !== null ? `health=${vpn.healthy}` : '' },
-      { name: 'gluetun healthy', ok: vpn.healthy === 'healthy', detail: `uiHostPort=${uiHostPort.length > 0 ? uiHostPort : ''}` },
       {
         name: 'gluetun forwarded port',
         ok: pfExpected ? /^\d+$/.test(forwardedPort) : true,
