@@ -47,6 +47,9 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
           backgroundColor: 'rgba(75, 192, 192, 0.2)',
           fill: true,
           tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHitRadius: 8,
         },
         {
           label: 'Upload (MB/s)',
@@ -55,6 +58,9 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
           backgroundColor: 'rgba(255, 99, 132, 0.2)',
           fill: true,
           tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHitRadius: 8,
         },
       ],
     },
@@ -137,6 +143,9 @@ export function initLoadChart(canvasElement: HTMLCanvasElement) {
           backgroundColor: 'rgba(255, 206, 86, 0.2)',
           fill: true,
           tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHitRadius: 8,
         },
       ],
     },
@@ -509,6 +518,9 @@ export function updateCharts(data: Array<ChartDataPoint>) {
       backgroundColor: color.background,
       fill: false,
       tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      pointHitRadius: 8,
     };
   });
 
@@ -543,6 +555,9 @@ export function updateCharts(data: Array<ChartDataPoint>) {
       backgroundColor: color.background,
       fill: false,
       tension: 0.4,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      pointHitRadius: 8,
     };
   });
 
