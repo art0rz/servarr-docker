@@ -132,6 +132,24 @@ describe('Component Rendering', () => {
       expect(html).toContain('Indexers: 15');
     });
 
+    it('should include integration check tags when provided', () => {
+      const service: ServiceProbeResult = {
+        name: 'Sonarr',
+        ok: true,
+      };
+      const checks: Array<CheckResult> = [
+        { name: 'Sonarr download clients', ok: true, detail: 'enabled: qBittorrent' },
+        { name: 'Custom check', ok: false, detail: 'needs auth' },
+      ];
+
+      const html = renderServiceCard(service, checks);
+
+      expect(html).toContain('Sonarr download clients');
+      expect(html).toContain('enabled: qBittorrent');
+      expect(html).toContain('Custom check');
+      expect(html).toContain('needs auth');
+    });
+
     it('should escape HTML in service details', () => {
       const service: ServiceProbeResult = {
         name: 'Test<script>alert("xss")</script>',

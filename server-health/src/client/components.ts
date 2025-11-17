@@ -61,7 +61,7 @@ export function renderVpnCard(vpn: GluetunProbeResult | { name: string; ok: bool
   `;
 }
 
-export function renderServiceCard(service: ServiceProbeResult): string {
+export function renderServiceCard(service: ServiceProbeResult, serviceChecks: Array<CheckResult> = []): string {
   const ok = service.ok;
   const extras: Array<string> = [];
 
@@ -78,6 +78,13 @@ export function renderServiceCard(service: ServiceProbeResult): string {
   // Add detail field if present (e.g., error count for recyclarr)
   if (service.detail !== undefined) extras.push(service.detail);
 
+  const serviceCheckTags = serviceChecks.map(check => {
+    const label = check.name.replace(service.name, '').trim() || check.name;
+    const detailText = check.detail.length > 0 ? check.detail : (check.ok ? 'OK' : 'Requires attention');
+    const color = check.ok ? '#3fb950' : '#f85149';
+    return `<div class="tag" style="color: ${color};">${escapeHtml(label)}: ${escapeHtml(detailText)}</div>`;
+  }).join('');
+
   return `
     <div class="card" style="${!ok ? 'border-color: #f85149;' : ''}">
       <div class="status ${ok ? 'ok' : 'fail'}">
@@ -89,6 +96,7 @@ export function renderServiceCard(service: ServiceProbeResult): string {
       </div>` : ''}
       ${extras.length > 0 ? `<div class="tag">${extras.join(' • ')}</div>` : ''}
       ${service.reason !== undefined ? `<div class="tag" style="color: #f85149;">Reason: ${escapeHtml(service.reason)}</div>` : ''}
+      ${serviceCheckTags}
     </div>
   `;
 }

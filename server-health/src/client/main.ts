@@ -1,4 +1,4 @@
-import type { HealthData, CompactChartData, ChartDataPoint } from './types';
+import type { HealthData, CompactChartData, ChartDataPoint, CheckResult } from './types';
 import { renderSummary, renderVpnCard, renderServiceCard, renderCheckCard } from './components';
 import { initNetworkChart, initLoadChart, initResponseTimeChart, initMemoryChart, updateCharts, setResolution, type TimeResolution } from './chart';
 import './style.css';
@@ -54,16 +54,49 @@ function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
 }
 
 // Render health data (called after state update)
+const SERVICE_CHECK_MAP: Record<string, Array<string>> = {
+  Sonarr: ['Sonarr download clients'],
+  Radarr: ['Radarr download clients'],
+  Prowlarr: ['Prowlarr indexers'],
+};
+
+function partitionChecks(checks: Array<CheckResult>): { serviceChecks: Map<string, Array<CheckResult>>; remaining: Array<CheckResult> } {
+  const serviceChecks = new Map<string, Array<CheckResult>>();
+  const remaining: Array<CheckResult> = [];
+
+  for (const check of checks) {
+    let matchedService: string | undefined;
+    for (const [serviceName, names] of Object.entries(SERVICE_CHECK_MAP)) {
+      if (names.includes(check.name)) {
+        matchedService = serviceName;
+        break;
+      }
+    }
+    if (matchedService) {
+      const list = serviceChecks.get(matchedService) ?? [];
+      list.push(check);
+      serviceChecks.set(matchedService, list);
+    } else {
+      remaining.push(check);
+    }
+  }
+
+  return { serviceChecks, remaining };
+}
+
 function renderHealth() {
   if (healthData === null) return;
 
   // Check if VPN is enabled
   const vpnEnabled = 'running' in healthData.vpn && healthData.vpn.running;
 
+  const { serviceChecks, remaining } = partitionChecks(healthData.checks);
+
   // Update summary
   const summaryEl = document.getElementById('summary');
   if (summaryEl !== null) {
-    summaryEl.innerHTML = renderSummary(healthData);
+    const summarySource = { ...healthData, checks: remaining } as HealthData;
+    summaryEl.innerHTML = renderSummary(summarySource);
   }
 
   // Initialize charts on first load
@@ -104,7 +137,9 @@ function renderHealth() {
   // Update services section
   const servicesEl = document.getElementById('services');
   if (servicesEl !== null) {
-    const services = healthData.services.map(renderServiceCard).join('');
+    const services = healthData.services
+      .map(service => renderServiceCard(service, serviceChecks.get(service.name) ?? []))
+      .join('');
     servicesEl.innerHTML = services.length > 0 ? services : '<div class="empty">No services found</div>';
   }
 
@@ -113,7 +148,7 @@ function renderHealth() {
   const checksDivEl = document.getElementById('checks');
 
   if (checksSectionEl !== null && checksDivEl !== null) {
-    const checks = healthData.checks.map(renderCheckCard).join('');
+    const checks = remaining.map(renderCheckCard).join('');
     checksSectionEl.style.display = 'block';
     checksDivEl.style.display = 'grid';
     checksDivEl.innerHTML = checks.length > 0 ? checks : '<div class="empty">No checks configured</div>';
