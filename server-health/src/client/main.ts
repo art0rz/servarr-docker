@@ -188,6 +188,9 @@ function connectWebSocket() {
 
   ws.onopen = () => {
     console.log('[ws] Connected');
+    // Refresh health and chart data on (re)connect to ensure we have latest state
+    void fetchHealth();
+    void loadChartData();
   };
 
   ws.onmessage = (event) => {
@@ -233,11 +236,13 @@ function connectWebSocket() {
     console.error('[ws] Error:', error);
   };
 
-  ws.onclose = () => {
-    console.log('[ws] Disconnected, reconnecting in 5s...');
+  ws.onclose = (event) => {
+    const wasClean = event.wasClean;
+    console.log(`[ws] Disconnected ${wasClean ? 'cleanly' : 'unexpectedly'}, reconnecting in 5s...`);
     ws = null;
     // Reconnect after 5 seconds
     reconnectTimeout = window.setTimeout(() => {
+      console.log('[ws] Attempting to reconnect...');
       connectWebSocket();
     }, 5000);
   };
