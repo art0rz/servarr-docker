@@ -3,6 +3,21 @@ import { renderSummary, renderVpnCard, renderServiceCard, renderCheckCard } from
 import { initNetworkChart, initLoadChart, initResponseTimeChart, initMemoryChart, updateCharts, setResolution, type TimeResolution } from './chart';
 import './style.css';
 
+// Logging helpers
+function log(message: string) {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${message}`);
+}
+
+function logError(message: string, error?: unknown) {
+  const timestamp = new Date().toISOString();
+  if (error !== undefined) {
+    console.error(`[${timestamp}] ${message}`, error);
+  } else {
+    console.error(`[${timestamp}] ${message}`);
+  }
+}
+
 let chartsInitialized = false;
 let chartData: Array<ChartDataPoint> = [];
 
@@ -112,7 +127,7 @@ async function fetchHealth() {
     healthData = await response.json() as HealthData;
     renderHealth();
   } catch (error) {
-    console.error('Failed to load health data:', error);
+    logError('Failed to load health data', error);
     const summaryEl = document.getElementById('summary');
     if (summaryEl !== null) {
       summaryEl.innerHTML =
@@ -132,7 +147,7 @@ async function loadChartData() {
       updateCharts(chartData);
     }
   } catch (error) {
-    console.error('Failed to load chart data:', error);
+    logError('Failed to load chart data', error);
   }
 }
 
@@ -187,7 +202,6 @@ function connectWebSocket() {
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
-    console.log('[ws] Connected');
     // Refresh health and chart data on (re)connect to ensure we have latest state
     void fetchHealth();
     void loadChartData();
@@ -228,21 +242,22 @@ function connectWebSocket() {
         }
       }
     } catch (error) {
-      console.error('[ws] Failed to parse message:', error);
+      logError('[ws] Failed to parse message', error);
     }
   };
 
   ws.onerror = (error) => {
-    console.error('[ws] Error:', error);
+    logError('[ws] Error', error);
   };
 
   ws.onclose = (event) => {
     const wasClean = event.wasClean;
-    console.log(`[ws] Disconnected ${wasClean ? 'cleanly' : 'unexpectedly'}, reconnecting in 5s...`);
+    if (!wasClean) {
+      log('[ws] Connection lost, reconnecting...');
+    }
     ws = null;
     // Reconnect after 5 seconds
     reconnectTimeout = window.setTimeout(() => {
-      console.log('[ws] Attempting to reconnect...');
       connectWebSocket();
     }, 5000);
   };

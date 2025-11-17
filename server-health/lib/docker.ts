@@ -2,11 +2,15 @@ import Docker from 'dockerode';
 import type { Readable } from 'node:stream';
 import { readFile, watch as fsWatch } from 'node:fs';
 import { promisify } from 'node:util';
+import { logger } from './logger';
 
 const readFileAsync = promisify(readFile);
 
 // Create Docker client instance
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+
+// Child logger for docker operations
+const dockerLogger = logger.child({ component: 'docker' });
 
 // Container state cache
 interface CachedContainer {
@@ -79,9 +83,9 @@ async function refreshContainerCache() {
       });
     }
 
-    console.log(`[docker] Cached ${String(containerCache.size)} containers`);
+    dockerLogger.info({ count: containerCache.size }, 'Cached containers');
   } catch (error) {
-    console.error('[docker] Failed to refresh container cache:', error);
+    dockerLogger.error({ err: error }, 'Failed to refresh container cache');
   }
 }
 
@@ -90,11 +94,11 @@ async function refreshContainerCache() {
  */
 export async function watchDockerEvents() {
   if (eventStreamActive) {
-    console.log('[docker] Event stream already active');
+    dockerLogger.debug('Event stream already active');
     return;
   }
 
-  console.log('[docker] Setting up Docker events stream');
+  dockerLogger.info('Setting up Docker events stream');
 
   // Initial cache load
   await refreshContainerCache();
@@ -119,32 +123,30 @@ export async function watchDockerEvents() {
 
         // Events we care about: start, stop, die, kill, health_status
         if (['start', 'stop', 'die', 'kill', 'health_status', 'create', 'destroy'].includes(event.Action)) {
-          console.log(`[docker] Container event: ${containerName} - ${event.Action}`);
-
           // Refresh this specific container's info
           if (event.id !== undefined) {
             void updateContainerInCache(event.id, containerName);
           }
         }
       } catch (error) {
-        console.error('[docker] Failed to parse event:', error);
+        dockerLogger.error({ err: error }, 'Failed to parse event');
       }
     });
 
     stream.on('error', (error) => {
-      console.error('[docker] Event stream error:', error);
+      dockerLogger.error({ err: error }, 'Event stream error');
       eventStreamActive = false;
       // Reconnect after delay
       setTimeout(() => { void watchDockerEvents(); }, 5000);
     });
 
     stream.on('end', () => {
-      console.log('[docker] Event stream ended, reconnecting...');
+      dockerLogger.info('Event stream ended, reconnecting...');
       eventStreamActive = false;
       setTimeout(() => { void watchDockerEvents(); }, 1000);
     });
   } catch (error) {
-    console.error('[docker] Failed to start event stream:', error);
+    dockerLogger.error({ err: error }, 'Failed to start event stream');
     eventStreamActive = false;
   }
 }
@@ -189,10 +191,10 @@ async function readGluetunPort() {
     // Validate it's a number
     if (/^\d+$/.test(port)) {
       cachedForwardedPort = port;
-      console.log(`[docker] Gluetun forwarded port updated: ${port}`);
+      dockerLogger.info({ port }, 'Gluetun forwarded port updated');
     } else {
       cachedForwardedPort = '';
-      console.log('[docker] Gluetun forwarded port file contains invalid data');
+      dockerLogger.warn('Gluetun forwarded port file contains invalid data');
     }
   } catch {
     // File doesn't exist yet or can't be read
@@ -204,7 +206,7 @@ async function readGluetunPort() {
  * Watch the Gluetun forwarded port file
  */
 export async function watchGluetunPort() {
-  console.log('[docker] Setting up Gluetun forwarded port watcher');
+  dockerLogger.info('Setting up Gluetun forwarded port watcher');
 
   // Initial read
   await readGluetunPort();
@@ -217,10 +219,10 @@ export async function watchGluetunPort() {
     });
 
     watcher.on('error', (error) => {
-      console.error(`[docker] Error watching ${GLUETUN_PORT_FILE}:`, error);
+      dockerLogger.error({ err: error, file: GLUETUN_PORT_FILE }, 'Error watching file');
     });
   } catch (error) {
-    console.error(`[docker] Failed to watch ${GLUETUN_PORT_FILE}:`, error);
+    dockerLogger.error({ err: error, file: GLUETUN_PORT_FILE }, 'Failed to watch file');
   }
 }
 
@@ -440,11 +442,9 @@ export async function readFileFromContainer(containerName: string, filePath: str
 export async function watchContainerStats(containerName: string) {
   // Check if already watching this container
   if (activeStatsStreams.get(containerName) === true) {
-    console.log(`[docker] Stats stream already active for ${containerName}`);
     return;
   }
 
-  console.log(`[docker] Setting up stats stream for ${containerName}`);
   activeStatsStreams.set(containerName, true);
 
   try {
@@ -487,13 +487,6 @@ export async function watchContainerStats(containerName: string) {
             const uploadBytesPerSec = Math.max(0, (txBytes - previous.txBytes) / elapsedSec);
 
             throughput = { downloadBytesPerSec, uploadBytesPerSec };
-
-            // Log if there's actual traffic (> 10 KB/s)
-            if (downloadBytesPerSec > 10240 || uploadBytesPerSec > 10240) {
-              const dlMBps = (downloadBytesPerSec / 1024 / 1024).toFixed(2);
-              const upMBps = (uploadBytesPerSec / 1024 / 1024).toFixed(2);
-              console.log(`[docker] ${containerName} stats: ↓ ${dlMBps} MB/s, ↑ ${upMBps} MB/s`);
-            }
           }
         }
 
@@ -507,24 +500,24 @@ export async function watchContainerStats(containerName: string) {
           throughput,
         });
       } catch (error) {
-        console.error(`[docker] Failed to parse stats for ${containerName}:`, error);
+        dockerLogger.error({ err: error, container: containerName }, 'Failed to parse stats');
       }
     });
 
     stream.on('error', (error) => {
-      console.error(`[docker] Stats stream error for ${containerName}:`, error);
+      dockerLogger.error({ err: error, container: containerName }, 'Stats stream error');
       activeStatsStreams.delete(containerName);
       // Reconnect after delay
       setTimeout(() => { void watchContainerStats(containerName); }, 5000);
     });
 
     stream.on('end', () => {
-      console.log(`[docker] Stats stream ended for ${containerName}, reconnecting...`);
       activeStatsStreams.delete(containerName);
+      // Reconnect after short delay
       setTimeout(() => { void watchContainerStats(containerName); }, 1000);
     });
   } catch (error) {
-    console.error(`[docker] Failed to start stats stream for ${containerName}:`, error);
+    dockerLogger.error({ err: error, container: containerName }, 'Failed to start stats stream');
     activeStatsStreams.delete(containerName);
   }
 }

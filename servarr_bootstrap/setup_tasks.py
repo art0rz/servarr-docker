@@ -32,6 +32,7 @@ CONFIG_DIRECTORIES = (
     "bazarr",
     "cross-seed",
     "recyclarr",
+    "health-server",
 )
 MEDIA_DIRECTORIES = (
     "downloads/incomplete",

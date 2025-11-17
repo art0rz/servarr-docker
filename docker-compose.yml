@@ -305,6 +305,7 @@ services:
       - TZ=${TZ}
       - USE_VPN=${USE_VPN:-true}
       - MEDIA_DIR=${MEDIA_DIR}
+      - HEALTH_DATA_DIR=/health-data
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-servarr}
       - SONARR_PORT=${SONARR_PORT:-8989}
       - RADARR_PORT=${RADARR_PORT:-7878}
@@ -317,6 +318,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config:/config:ro
+      - ./config/health-server:/health-data
       - ${MEDIA_DIR}:${MEDIA_DIR}:ro
       - gluetun-tmp:/tmp/gluetun:ro
     ports:

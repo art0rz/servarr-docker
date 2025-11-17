@@ -13,6 +13,11 @@ function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
       responseTimes[service] = quantized * 10; // De-quantize from 10ms buckets
     }
 
+    const memoryUsage: Record<string, number> = {};
+    for (const container of compact.containers) {
+      memoryUsage[container] = compact.memoryUsage[container]?.[i] ?? 0; // Memory in MB
+    }
+
     result.push({
       timestamp: compact.timestamps[i] ?? Date.now(),
       downloadRate: compact.downloadRate[i] ?? 0,
@@ -21,6 +26,7 @@ function decompressChartData(compact: CompactChartData): Array<ChartDataPoint> {
       load5: 0, // Not sent in compact format
       load15: 0, // Not sent in compact format
       responseTimes,
+      memoryUsage,
     });
   }
   return result;
@@ -32,6 +38,7 @@ describe('Chart Data Processing', () => {
       const compact: CompactChartData = {
         dataPoints: 3,
         services: ['Sonarr', 'Radarr'],
+        containers: ['qbittorrent', 'sonarr'],
         timestamps: [1700000000000, 1700000001000, 1700000002000],
         downloadRate: [1048576, 2097152, 1572864], // 1MB, 2MB, 1.5MB
         uploadRate: [524288, 1048576, 786432],     // 0.5MB, 1MB, 0.75MB
@@ -39,6 +46,10 @@ describe('Chart Data Processing', () => {
         responseTimes: {
           'Sonarr': [10, 12, 11],   // 100ms, 120ms, 110ms (quantized to 10ms)
           'Radarr': [15, 14, 16],   // 150ms, 140ms, 160ms
+        },
+        memoryUsage: {
+          'qbittorrent': [512, 520, 518],
+          'sonarr': [256, 260, 258],
         },
       };
 
@@ -75,11 +86,13 @@ describe('Chart Data Processing', () => {
       const compact: CompactChartData = {
         dataPoints: 0,
         services: [],
+        containers: [],
         timestamps: [],
         downloadRate: [],
         uploadRate: [],
         load1: [],
         responseTimes: {},
+        memoryUsage: {},
       };
 
       const result = decompressChartData(compact);
@@ -91,6 +104,7 @@ describe('Chart Data Processing', () => {
       const compact: CompactChartData = {
         dataPoints: 2,
         services: ['Sonarr'],
+        containers: [],
         timestamps: [1700000000000, 1700000001000],
         downloadRate: [1048576, 2097152],
         uploadRate: [524288, 1048576],
@@ -98,6 +112,7 @@ describe('Chart Data Processing', () => {
         responseTimes: {
           'Sonarr': [10], // Only one value, second should default to 0
         },
+        memoryUsage: {},
       };
 
       const result = decompressChartData(compact);
@@ -111,11 +126,13 @@ describe('Chart Data Processing', () => {
       const compact: CompactChartData = {
         dataPoints: 3,
         services: [],
+        containers: [],
         timestamps: [1700000000000, 1700000005000, 1700000010000], // Irregular 5-second intervals
         downloadRate: [0, 0, 0],
         uploadRate: [0, 0, 0],
         load1: [0, 0, 0],
         responseTimes: {},
+        memoryUsage: {},
       };
 
       const result = decompressChartData(compact);
@@ -129,11 +146,13 @@ describe('Chart Data Processing', () => {
       const compact: CompactChartData = {
         dataPoints: 2,
         services: [],
+        containers: [],
         timestamps: [1700000000000, 1700000001000],
         downloadRate: [0, 0],
         uploadRate: [0, 0],
         load1: [1.23, 4.56],
         responseTimes: {},
+        memoryUsage: {},
       };
 
       const result = decompressChartData(compact);
@@ -148,6 +167,7 @@ describe('Chart Data Processing', () => {
       const compact: CompactChartData = {
         dataPoints: 1,
         services: ['Sonarr', 'Radarr', 'Prowlarr', 'Bazarr', 'qBittorrent'],
+        containers: [],
         timestamps: [1700000000000],
         downloadRate: [0],
         uploadRate: [0],
@@ -159,6 +179,7 @@ describe('Chart Data Processing', () => {
           'Bazarr': [15],
           'qBittorrent': [5],
         },
+        memoryUsage: {},
       };
 
       const result = decompressChartData(compact);

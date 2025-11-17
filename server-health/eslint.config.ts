@@ -7,6 +7,7 @@ const config: FlatConfig.ConfigArray = [
     ignores: [
       'dist/**',
       'node_modules/**',
+      'coverage/**',
     ],
   },
   eslint.configs.recommended,

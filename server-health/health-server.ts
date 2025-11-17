@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 
+import { logger } from './lib/logger';
 import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles, watchCrossSeedLog } from './lib/config';
 import { watchDockerEvents, watchGluetunPort, watchContainerStats, getAllContainerMemoryUsage } from './lib/docker';
@@ -44,7 +45,8 @@ const HEALTH_INTERVAL_MS = parseInt(process.env['HEALTH_INTERVAL_MS'] ?? '10000'
 const USE_VPN = process.env['USE_VPN'] === 'true';
 const GIT_REF = resolveGitRef();
 const CONFIG_ROOT = process.env['CONFIG_ROOT'] ?? '/config';
-const CHART_DATA_FILE = join(CONFIG_ROOT, 'chart-data.json');
+const HEALTH_DATA_DIR = process.env['HEALTH_DATA_DIR'] ?? join(CONFIG_ROOT, 'health-server');
+const CHART_DATA_FILE = join(HEALTH_DATA_DIR, 'chart-data.json');
 
 // WebSocket clients
 const wsClients = new Set<WebSocket>();
@@ -170,9 +172,8 @@ function resolveGitRef() {
 async function saveChartData() {
   try {
     await fs.writeFile(CHART_DATA_FILE, JSON.stringify(healthCache.chartData), 'utf-8');
-    console.log(`[persistence] Saved ${String(healthCache.chartData.length)} chart data points to disk`);
   } catch (error) {
-    console.error('[persistence] Failed to save chart data:', error);
+    logger.error({ err: error }, 'Failed to save chart data');
   }
 }
 
@@ -192,10 +193,10 @@ async function loadChartData() {
     );
 
     healthCache.chartData = validData;
-    console.log(`[persistence] Loaded ${String(validData.length)} chart data points from disk`);
+    logger.info({ dataPoints: validData.length }, 'Loaded chart data from disk');
   } catch {
     // File doesn't exist on first run, that's ok
-    console.log('[persistence] No existing chart data found (this is normal on first run)');
+    logger.info('No existing chart data found (this is normal on first run)');
   }
 }
 
@@ -224,6 +225,53 @@ function publish(partial: Partial<HealthCache>) {
     }
   }
 
+  // Log meaningful state changes for services
+  if (partial.services !== undefined) {
+    const oldServices = healthCache.services;
+    const newServices = partial.services;
+
+    for (const newSvc of newServices) {
+      const oldSvc = oldServices.find(s => s.name === newSvc.name);
+      if (oldSvc !== undefined && oldSvc.ok !== newSvc.ok) {
+        if (newSvc.ok) {
+          logger.info({ service: newSvc.name }, 'Service UP');
+        } else {
+          logger.warn({ service: newSvc.name }, 'Service DOWN');
+        }
+      }
+    }
+  }
+
+  // Log meaningful state changes for checks
+  if (partial.checks !== undefined) {
+    const oldChecks = healthCache.checks;
+    const newChecks = partial.checks;
+
+    for (const newCheck of newChecks) {
+      const oldCheck = oldChecks.find(c => c.name === newCheck.name);
+      if (oldCheck !== undefined && oldCheck.ok !== newCheck.ok) {
+        if (newCheck.ok) {
+          logger.info({ check: newCheck.name, detail: newCheck.detail }, 'Check PASS');
+        } else {
+          logger.warn({ check: newCheck.name, detail: newCheck.detail }, 'Check FAIL');
+        }
+      }
+    }
+  }
+
+  // Log VPN state changes
+  if (partial.vpn !== undefined && 'running' in partial.vpn) {
+    const oldVpn = healthCache.vpn;
+    const newVpn = partial.vpn;
+    if ('running' in oldVpn && oldVpn.running !== newVpn.running) {
+      const status = newVpn.running ? 'started' : 'stopped';
+      logger.info({ vpn: 'gluetun' }, `VPN ${status}`);
+    }
+    if ('running' in oldVpn && oldVpn.healthy !== newVpn.healthy) {
+      logger.info({ vpn: 'gluetun', health: newVpn.healthy }, 'VPN health changed');
+    }
+  }
+
   // Update local cache
   healthCache = {
     ...healthCache,
@@ -236,15 +284,11 @@ function publish(partial: Partial<HealthCache>) {
 
   // Only broadcast if data actually changed
   if (hasChanges && wsClients.size > 0) {
-    console.log(`[ws] Broadcasting changes: ${changedKeys.join(', ')} to ${String(wsClients.size)} client(s)`);
-     
     const { chartData: _, ...updateData } = partial;
     broadcastToClients({
       type: 'health',
       data: updateData,
     });
-  } else if (hasChanges && wsClients.size === 0) {
-    console.log(`[ws] Changes detected (${changedKeys.join(', ')}) but no clients connected`);
   }
 }
 
@@ -254,7 +298,7 @@ function startWatcher(name: string, fn: () => Promise<void>, interval: number) {
       await fn();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`Watcher ${name} failed:`, error);
+      logger.error({ err: error, watcher: name }, 'Watcher failed');
       publish({ error: `${name}: ${errorMessage}` });
     } finally {
       setTimeout(() => { void run(); }, interval);
@@ -440,23 +484,27 @@ app.use(express.static(join(__dirname, '..', 'client')));
 
 // Create HTTP server
 const server = app.listen(PORT, () => {
-  console.log(`Health server listening on :${PORT}`);
+  logger.info({
+    port: PORT,
+    containers: containersToWatch.length,
+    vpnEnabled: USE_VPN,
+    checkIntervalSeconds: HEALTH_INTERVAL_MS / 1000,
+    gitRef: GIT_REF.length > 0 ? GIT_REF : 'unknown',
+  }, 'Health server started');
 });
 
 // Create WebSocket server
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws: WebSocket) => {
-  console.log('[ws] Client connected');
   wsClients.add(ws);
 
   ws.on('close', () => {
-    console.log('[ws] Client disconnected');
     wsClients.delete(ws);
   });
 
   ws.on('error', (error) => {
-    console.error('[ws] WebSocket error:', error);
+    logger.error({ err: error }, 'WebSocket error');
     wsClients.delete(ws);
   });
 });

@@ -547,7 +547,8 @@ docker exec qbittorrent curl https://ifconfig.io
 │   ├── sonarr/
 │   ├── radarr/
 │   ├── prowlarr/
-│   └── bazarr/
+│   ├── bazarr/
+│   └── health-server/
 └── server-health/         # Health monitoring service
     ├── Dockerfile
     ├── health-server.js
