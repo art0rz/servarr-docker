@@ -160,20 +160,25 @@
       const v = vpn || {};
       const q = qbitEgress || {};
       const ingress = qbitIngress || null;
-      const hostPort = ingress?.hostPort || '';
+      const vpnStatus = typeof v.healthy === 'string' && v.healthy.length > 0 ? v.healthy.toUpperCase() : 'UNKNOWN';
+      const vpnRunning = v.running === true ? 'Yes' : 'No';
+      const vpnEgress = typeof v.vpnEgress === 'string' && v.vpnEgress.length > 0 ? v.vpnEgress : 'Unknown';
+
+      const hostPort = typeof ingress?.hostPort === 'string' ? ingress.hostPort : '';
       const listenPort = ingress?.listenPort ?? null;
-      const ingressOk = (hostPort.length > 0) || (listenPort !== null);
-      const pfDetail = pfSync?.detail || '';
-      const pfText = pfDetail.length > 0 ? pfDetail : (pfSync?.ok ? 'OK' : 'Requires attention');
+      const ingressOk = hostPort.length > 0 && typeof listenPort === 'number';
+      const hostDisplay = hostPort.length > 0 ? hostPort : 'pending';
+      const listenDisplay = listenPort !== null ? listenPort : 'Unknown';
+      const pfDetail = typeof pfSync?.detail === 'string' && pfSync.detail.length > 0 ? pfSync.detail : (pfSync ? (pfSync.ok ? 'OK' : 'Requires attention') : '');
 
       return `
         <div class="card">
           <div class="status ${v.ok ? 'ok' : 'fail'}">
-            ${(v.healthy || 'unknown').toUpperCase()}
+            ${vpnStatus}
           </div>
           <div><strong>Gluetun VPN</strong></div>
-          <div class="tag">Running: ${v.running ? 'Yes' : 'No'}</div>
-          <div class="tag">Egress IP: ${v.vpnEgress || 'Unknown'}</div>
+          <div class="tag">Running: ${vpnRunning}</div>
+          <div class="tag">Egress IP: ${vpnEgress}</div>
         </div>
         <div class="card">
           <div class="status ${q.ok ? 'ok' : 'fail'}">
@@ -186,8 +191,8 @@
         <div class="card">
           <div class="status ${ingressOk ? 'ok' : 'fail'}">Ingress</div>
           <div><strong>qBittorrent Ingress</strong></div>
-          <div class="tag">Host Port: ${hostPort || 'pending'}</div>
-          <div class="tag">qBittorrent Port: ${listenPort !== null ? listenPort : 'Unknown'}</div>
+          <div class="tag">Host Port: ${hostDisplay}</div>
+          <div class="tag">qBittorrent Port: ${listenDisplay}</div>
         </div>` : ''}
         ${pfSync ? `
         <div class="card">

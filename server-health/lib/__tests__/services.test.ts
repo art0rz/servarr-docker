@@ -14,8 +14,7 @@ describe('service discovery', () => {
   beforeEach(() => {
     Object.keys(process.env).forEach(key => {
       if (!(key in ORIGINAL_ENV)) {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       }
     });
     Object.entries(ORIGINAL_ENV).forEach(([key, value]) => {

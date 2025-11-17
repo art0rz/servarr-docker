@@ -43,43 +43,59 @@ export function renderVpnCard(
   qbitIngress: QbitIngressInfo | null,
   pfSync: CheckResult | null,
 ): string {
-  const v = vpn as GluetunProbeResult;
-  const q = qbitEgress;
-  const ingress = qbitIngress;
-  const ingressHost = ingress?.hostPort ?? '';
-  const ingressPort = ingress?.listenPort ?? null;
-  const ingressOk = (ingressHost.length > 0) || (ingressPort !== null);
-  const pfDetail = pfSync?.detail ?? '';
-  const pfText = pfDetail.length > 0 ? pfDetail : (pfSync?.ok ? 'OK' : 'Requires attention');
+  const vpnData = vpn as Partial<GluetunProbeResult>;
+  const vpnOk = vpnData.ok === true;
+  const vpnStatus = typeof vpnData.healthy === 'string' && vpnData.healthy.length > 0 ? vpnData.healthy.toUpperCase() : 'UNKNOWN';
+  const vpnRunningText = vpnData.running === true ? 'Yes' : 'No';
+  const vpnEgressText = typeof vpnData.vpnEgress === 'string' && vpnData.vpnEgress.length > 0 ? vpnData.vpnEgress : 'Unknown';
+
+  const egressOk = qbitEgress.ok;
+  const egressIp = qbitEgress.vpnEgress.length > 0 ? qbitEgress.vpnEgress : 'Unknown';
+
+  const hasIngress = qbitIngress !== null;
+  const ingressHost = hasIngress && typeof qbitIngress.hostPort === 'string' ? qbitIngress.hostPort : '';
+  const ingressPort = hasIngress ? qbitIngress.listenPort ?? null : null;
+  const ingressPresent = hasIngress && (ingressHost.length > 0 || typeof ingressPort === 'number');
+  const ingressOk = ingressHost.length > 0 && typeof ingressPort === 'number';
+  const ingressStatus = ingressOk ? 'ok' : 'fail';
+  const ingressHostText = ingressHost.length > 0 ? ingressHost : 'pending';
+  const ingressPortText = typeof ingressPort === 'number' ? String(ingressPort) : 'Unknown';
+
+  const pfDetail = pfSync !== null && typeof pfSync.detail === 'string' && pfSync.detail.length > 0
+    ? pfSync.detail
+    : pfSync !== null
+      ? (pfSync.ok ? 'OK' : 'Requires attention')
+      : '';
+  const pfStatus = pfSync?.ok === true ? 'ok' : 'fail';
 
   return `
     <div class="card">
-      <div class="status ${v.ok ? 'ok' : 'fail'}">
-        ${(v.healthy ?? 'unknown').toUpperCase()}
+      <div class="status ${vpnOk ? 'ok' : 'fail'}">
+        ${vpnStatus}
       </div>
       <div><strong>Gluetun VPN</strong></div>
-      <div class="tag">Running: ${v.running ? 'Yes' : 'No'}</div>
-      <div class="tag">Egress IP: ${'vpnEgress' in v ? v.vpnEgress : 'Unknown'}</div>
+      <div class="tag">Running: ${vpnRunningText}</div>
+      <div class="tag">Egress IP: ${vpnEgressText}</div>
     </div>
     <div class="card">
-      <div class="status ${q.ok ? 'ok' : 'fail'}">
-        ${q.ok ? 'OK' : 'FAIL'}
+      <div class="status ${egressOk ? 'ok' : 'fail'}">
+        ${egressOk ? 'OK' : 'FAIL'}
       </div>
       <div><strong>qBittorrent Egress</strong></div>
-      <div class="tag">Egress IP: ${q.vpnEgress.length > 0 ? q.vpnEgress : 'Unknown'}</div>
+      <div class="tag">Egress IP: ${egressIp}</div>
     </div>
-    ${ingress ? `
+    ${ingressPresent ? `
     <div class="card">
-      <div class="status ${ingressOk ? 'ok' : 'fail'}">Ingress</div>
+      <div class="status ${ingressStatus}">Ingress</div>
       <div><strong>qBittorrent Ingress</strong></div>
-      <div class="tag">Host Port: ${ingressHost.length > 0 ? ingressHost : 'pending'}</div>
-      <div class="tag">qBittorrent Port: ${ingressPort !== null ? ingressPort : 'Unknown'}</div>
+      <div class="tag">Host Port: ${ingressHostText}</div>
+      <div class="tag">qBittorrent Port: ${ingressPortText}</div>
     </div>` : ''}
-    ${pfSync ? `
+    ${pfSync !== null ? `
     <div class="card">
-      <div class="status ${pfSync.ok ? 'ok' : 'fail'}">pf-sync</div>
+      <div class="status ${pfStatus}">pf-sync</div>
       <div><strong>pf-sync heartbeat</strong></div>
-      <div class="tag">${escapeHtml(pfText)}</div>
+      <div class="tag">${escapeHtml(pfDetail)}</div>
     </div>` : ''}
   `;
 }
@@ -88,23 +104,24 @@ export function renderServiceCard(service: ServiceProbeResult, serviceChecks: Ar
   const ok = service.ok;
   const extras: Array<string> = [];
 
-  if (service.version !== undefined) extras.push(`v${service.version}`);
+  if (typeof service.version === 'string' && service.version.length > 0) extras.push(`v${service.version}`);
   if (typeof service.queue === 'number') extras.push(`Queue: ${String(service.queue)}`);
   if (typeof service.indexers === 'number') extras.push(`Indexers: ${String(service.indexers)}`);
   if (typeof service.dl === 'number') extras.push(`DL: ${formatRate(service.dl)}`);
   if (typeof service.up === 'number') extras.push(`UP: ${formatRate(service.up)}`);
   if (typeof service.total === 'number') extras.push(`Torrents: ${String(service.total)}`);
   if (typeof service.sessions === 'number') extras.push(`Sessions: ${String(service.sessions)}`);
-  if (service.lastRun !== undefined) extras.push(`Last: ${escapeHtml(service.lastRun)}`);
+  if (typeof service.lastRun === 'string' && service.lastRun.length > 0) extras.push(`Last: ${escapeHtml(service.lastRun)}`);
   if (typeof service.torrentsAdded === 'number') extras.push(`Added: ${String(service.torrentsAdded)}`);
 
   // Add detail field if present (e.g., error count for recyclarr)
-  if (service.detail !== undefined) extras.push(service.detail);
+  if (typeof service.detail === 'string' && service.detail.length > 0) extras.push(service.detail);
 
   const serviceCheckTags = serviceChecks.map(check => {
-    const label = check.name.replace(service.name, '').trim() || check.name;
-    let detailText = check.detail.length > 0 ? check.detail : (check.ok ? 'OK' : 'Requires attention');
-    detailText = detailText.replace(/^enabled:\s*/i, '');
+    const trimmed = check.name.replace(service.name, '').trim();
+    const label = trimmed.length > 0 ? trimmed : check.name;
+    const rawDetail = check.detail.length > 0 ? check.detail : (check.ok ? 'OK' : 'Requires attention');
+    const detailText = rawDetail.replace(/^enabled:\s*/i, '');
     return `<div class="tag">${escapeHtml(`${label}: ${detailText}`)}</div>`;
   }).join('');
 
@@ -114,11 +131,11 @@ export function renderServiceCard(service: ServiceProbeResult, serviceChecks: Ar
         ${ok ? 'OK' : 'FAIL'}
       </div>
       <div><strong>${escapeHtml(service.name.length > 0 ? service.name : 'Unknown')}</strong></div>
-      ${service.url !== undefined ? `<div class="tag">
+      ${typeof service.url === 'string' && service.url.length > 0 ? `<div class="tag">
         <a href="${escapeHtml(service.url)}" target="_blank" rel="noreferrer">${escapeHtml(service.url)}</a>
       </div>` : ''}
       ${extras.length > 0 ? `<div class="tag">${extras.join(' • ')}</div>` : ''}
-      ${service.reason !== undefined ? `<div class="tag" style="color: #f85149;">Reason: ${escapeHtml(service.reason)}</div>` : ''}
+      ${typeof service.reason === 'string' && service.reason.length > 0 ? `<div class="tag" style="color: #f85149;">Reason: ${escapeHtml(service.reason)}</div>` : ''}
       ${serviceCheckTags}
     </div>
   `;

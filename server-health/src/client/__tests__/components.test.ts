@@ -235,7 +235,8 @@ describe('Component Rendering', () => {
       };
 
       const ingress: QbitIngressInfo = { hostPort: '12345', listenPort: 8080 };
-      const html = renderVpnCard(vpn, qbitEgress, ingress);
+      const pfSync: CheckResult = { name: 'pf-sync heartbeat', ok: true, detail: 'active (recent sync detected)' };
+      const html = renderVpnCard(vpn, qbitEgress, ingress, pfSync);
 
       expect(html).toContain('HEALTHY');
       expect(html).toContain('Running: Yes');
@@ -263,7 +264,7 @@ describe('Component Rendering', () => {
         vpnEgress: '',
       };
 
-      const html = renderVpnCard(vpn, qbitEgress, null);
+      const html = renderVpnCard(vpn, qbitEgress, null, null);
 
       expect(html).toContain('Running: No');
       expect(html).toContain('status fail');

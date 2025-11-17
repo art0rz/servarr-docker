@@ -113,8 +113,7 @@ function isFullGluetunResult(vpn: HealthCache['vpn']): vpn is GluetunProbeResult
 
 app.get('/api/health', (_req: Request, res: Response) => {
   // Send health data without chart data to keep response small
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { chartData, ...healthWithoutCharts } = healthCache;
+  const { chartData: _chartData, ...healthWithoutCharts } = healthCache;
   res.json(healthWithoutCharts);
 });
 
@@ -227,8 +226,14 @@ function broadcastToClients(message: unknown) {
 
 function publish(partial: Partial<HealthCache>) {
   // Check if data actually changed before broadcasting
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { chartData, updatedAt, updating, error, gitRef, ...newData } = partial;
+  const {
+    chartData: _chartData,
+    updatedAt: _updatedAt,
+    updating: _updating,
+    error: _error,
+    gitRef: _gitRef,
+    ...newData
+  } = partial;
 
   // Compare new data with current cache (deep comparison)
   let hasChanges = false;
@@ -441,7 +446,6 @@ async function updateChecksSection() {
   const urls = await discoverServices();
   const apiKeys = await loadArrApiKeys();
   const vpn = healthCache.vpn;
-  const qbitEgress = healthCache.qbitEgress;
   const qbitService = healthCache.services.find(s => s.name === 'qBittorrent') as QbitProbeResult | undefined;
   const checks: Array<CheckResult> = [];
   let qbitIngress: HealthCache['qbitIngress'] = null;
@@ -459,7 +463,7 @@ async function updateChecksSection() {
 
   if (!USE_VPN) {
     checks.push({ name: 'VPN status', ok: true, detail: 'disabled (no VPN configured)' });
-    if (qbitService) {
+    if (qbitService !== undefined) {
       qbitIngress = {
         hostPort: '',
         listenPort: qbitService.listenPort ?? null,

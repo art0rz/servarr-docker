@@ -72,7 +72,7 @@ function partitionChecks(checks: Array<CheckResult>): { serviceChecks: Map<strin
         break;
       }
     }
-    if (matchedService) {
+    if (matchedService !== undefined) {
       const list = serviceChecks.get(matchedService) ?? [];
       list.push(check);
       serviceChecks.set(matchedService, list);
