@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
-import { watch } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import chokidar from 'chokidar';
+import { logger } from './logger';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_ROOT = join(__dirname, '..', '..', 'config');
@@ -87,7 +88,7 @@ async function reloadApiKeys() {
   );
 
   apiKeyCache = Object.fromEntries(entries);
-  console.log('[config] Loaded API keys:', Object.keys(apiKeyCache).join(', '));
+  logger.info({ services: Object.keys(apiKeyCache) }, 'Loaded API keys');
   return apiKeyCache;
 }
 
@@ -99,26 +100,30 @@ export async function loadArrApiKeys() {
 }
 
 export function watchConfigFiles() {
-  console.log('[config] Setting up file watchers for API key configs');
+  logger.info('Setting up file watchers for API key configs');
 
-  for (const [name, relPath] of Object.entries(API_FILES)) {
-    const filePath = join(CONFIG_ROOT, relPath);
+  const filePaths = Object.entries(API_FILES).map(([, relPath]) => join(CONFIG_ROOT, relPath));
 
-    try {
-      const watcher = watch(filePath, { persistent: false }, (eventType) => {
-        if (eventType === 'change') {
-          console.log(`[config] ${name} config changed, reloading API keys...`);
-          void reloadApiKeys();
-        }
-      });
+  const watcher = chokidar.watch(filePaths, {
+    persistent: false,
+    ignoreInitial: true,
+    awaitWriteFinish: {
+      stabilityThreshold: 100,
+      pollInterval: 100,
+    },
+  });
 
-      watcher.on('error', (error) => {
-        console.error(`[config] Error watching ${filePath}:`, error);
-      });
-    } catch (error) {
-      console.error(`[config] Failed to watch ${filePath}:`, error);
-    }
-  }
+  watcher.on('change', (path) => {
+    const name = Object.entries(API_FILES).find(([, relPath]) =>
+      join(CONFIG_ROOT, relPath) === path
+    )?.[0];
+    logger.info({ service: name, path }, 'Config file changed, reloading API keys');
+    void reloadApiKeys();
+  });
+
+  watcher.on('error', (error) => {
+    logger.error({ err: error }, 'Error watching config files');
+  });
 }
 
 const QBIT_CLIENT_REGEX = /"qbittorrent:(?:readonly:)?([^"]+)"/gi;
@@ -212,31 +217,34 @@ async function reloadCrossSeedStats() {
     lastTimestamp,
     added,
   };
-  console.log(`[config] Cross-Seed stats updated: ${String(added)} torrents added, last run: ${lastTimestamp ?? 'never'}`);
+  logger.info({ torrentsAdded: added, lastRun: lastTimestamp }, 'Cross-Seed stats updated');
 }
 
 /**
  * Watch Cross-Seed log file
  */
 export function watchCrossSeedLog() {
-  console.log('[config] Setting up Cross-Seed log watcher');
+  logger.info('Setting up Cross-Seed log watcher');
 
   // Initial load
   void reloadCrossSeedStats();
 
-  try {
-    const watcher = watch(CROSS_SEED_LOG, { persistent: false }, (eventType) => {
-      if (eventType === 'change') {
-        void reloadCrossSeedStats();
-      }
-    });
+  const watcher = chokidar.watch(CROSS_SEED_LOG, {
+    persistent: false,
+    ignoreInitial: true,
+    awaitWriteFinish: {
+      stabilityThreshold: 100,
+      pollInterval: 100,
+    },
+  });
 
-    watcher.on('error', (error) => {
-      console.error(`[config] Error watching ${CROSS_SEED_LOG}:`, error);
-    });
-  } catch (error) {
-    console.error(`[config] Failed to watch ${CROSS_SEED_LOG}:`, error);
-  }
+  watcher.on('change', () => {
+    void reloadCrossSeedStats();
+  });
+
+  watcher.on('error', (error) => {
+    logger.error({ err: error, file: CROSS_SEED_LOG }, 'Error watching Cross-Seed log');
+  });
 }
 
 /**

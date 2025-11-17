@@ -3,6 +3,7 @@ import { readFileSync, promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
+import cron from 'node-cron';
 
 import { logger } from './lib/logger';
 import { discoverServices } from './lib/services';
@@ -292,19 +293,41 @@ function publish(partial: Partial<HealthCache>) {
   }
 }
 
-function startWatcher(name: string, fn: () => Promise<void>, interval: number) {
-  const run = async () => {
-    try {
-      await fn();
-    } catch (error) {
+function startWatcher(name: string, fn: () => Promise<void>, intervalMs: number) {
+  // Convert interval to cron expression
+  const intervalSeconds = Math.floor(intervalMs / 1000);
+  let cronExpression: string;
+
+  if (intervalSeconds <= 59) {
+    // Every N seconds
+    cronExpression = `*/${String(intervalSeconds)} * * * * *`;
+  } else if (intervalSeconds < 3600) {
+    // Every N minutes
+    const minutes = Math.floor(intervalSeconds / 60);
+    cronExpression = `*/${String(minutes)} * * * *`;
+  } else {
+    // Every N hours
+    const hours = Math.floor(intervalSeconds / 3600);
+    cronExpression = `0 */${String(hours)} * * *`;
+  }
+
+  // Run immediately on startup
+  fn().catch((error: unknown) => {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error({ err: error, watcher: name }, 'Watcher failed');
+    publish({ error: `${name}: ${errorMessage}` });
+  });
+
+  // Schedule with cron
+  cron.schedule(cronExpression, () => {
+    fn().catch((error: unknown) => {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error({ err: error, watcher: name }, 'Watcher failed');
       publish({ error: `${name}: ${errorMessage}` });
-    } finally {
-      setTimeout(() => { void run(); }, interval);
-    }
-  };
-  void run();
+    });
+  });
+
+  logger.debug({ watcher: name, cron: cronExpression }, 'Scheduled watcher');
 }
 
 async function updateVpnSection() {
