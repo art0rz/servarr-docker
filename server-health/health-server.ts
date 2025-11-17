@@ -8,7 +8,7 @@ import cron from 'node-cron';
 import { logger } from './lib/logger';
 import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles, watchCrossSeedLog } from './lib/config';
-import { watchDockerEvents, watchGluetunPort, watchContainerStats, getAllContainerMemoryUsage } from './lib/docker';
+import { watchDockerEvents, watchGluetunPort, watchContainerStats, getAllContainerMemoryUsage, refreshContainerStats } from './lib/docker';
 import { getLoadAverage } from './lib/system';
 import {
   probeGluetun,
@@ -75,7 +75,7 @@ interface ChartDataPoint {
 
 interface HealthCache {
   vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null };
-  qbitEgress: QbitEgressProbeResult;
+  qbitEgress: QbitEgressProbeResult | null;
   services: Array<ServiceProbeResult>;
   checks: Array<CheckResult>;
   nets: Array<never>;
@@ -100,6 +100,12 @@ let healthCache: HealthCache = {
   error: 'initializing',
   gitRef: GIT_REF,
 };
+
+const containersToWatch = ['qbittorrent', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'cross-seed', 'flaresolverr'] as const;
+
+function isFullGluetunResult(vpn: HealthCache['vpn']): vpn is GluetunProbeResult {
+  return typeof vpn === 'object' && 'forwardedPort' in vpn && 'pfExpected' in vpn;
+}
 
 app.get('/api/health', (_req: Request, res: Response) => {
   // Send health data without chart data to keep response small
@@ -376,6 +382,10 @@ async function updateServicesSection() {
   const uploadRate = qbitService?.up ?? 0;
   const loadAvg = await getLoadAverage();
 
+  // Ensure we have fresh Docker stats for memory usage
+  const memoryTargets = [...containersToWatch, ...(USE_VPN ? ['gluetun'] : [])];
+  await Promise.all(memoryTargets.map(container => refreshContainerStats(container)));
+
   // Collect memory usage from all watched containers
   const allMemoryUsage = getAllContainerMemoryUsage();
   const memoryUsage: Record<string, number> = {};
@@ -427,24 +437,32 @@ async function updateChecksSection() {
   const checks: Array<CheckResult> = [];
 
   if (USE_VPN && 'running' in vpn) {
-    const gluetunVpn = vpn as GluetunProbeResult;
+    const gluetunVpn = isFullGluetunResult(vpn) ? vpn : undefined;
+    const forwardedPort = gluetunVpn?.forwardedPort ?? '';
+    const pfExpected = gluetunVpn?.pfExpected ?? false;
+    const vpnEgressValue = gluetunVpn?.vpnEgress ?? '';
+    const uiHostPort = gluetunVpn?.uiHostPort ?? '';
     checks.push(
-      { name: 'gluetun running', ok: gluetunVpn.running, detail: gluetunVpn.healthy !== null ? `health=${gluetunVpn.healthy}` : '' },
-      { name: 'gluetun healthy', ok: gluetunVpn.healthy === 'healthy', detail: `uiHostPort=${gluetunVpn.uiHostPort.length > 0 ? gluetunVpn.uiHostPort : ''}` },
+      { name: 'gluetun running', ok: vpn.running, detail: vpn.healthy !== null ? `health=${vpn.healthy}` : '' },
+      { name: 'gluetun healthy', ok: vpn.healthy === 'healthy', detail: `uiHostPort=${uiHostPort.length > 0 ? uiHostPort : ''}` },
       {
         name: 'gluetun forwarded port',
-        ok: gluetunVpn.pfExpected ? /^\d+$/.test(gluetunVpn.forwardedPort.length > 0 ? gluetunVpn.forwardedPort : '') : true,
-        detail: gluetunVpn.pfExpected ? (gluetunVpn.forwardedPort.length > 0 ? gluetunVpn.forwardedPort : 'pending') : 'disabled',
+        ok: pfExpected ? /^\d+$/.test(forwardedPort) : true,
+        detail: pfExpected ? (forwardedPort.length > 0 ? forwardedPort : 'pending') : 'disabled',
       },
-      { name: 'qbittorrent egress via VPN', ok: qbitEgress.vpnEgress.length > 0, detail: qbitEgress.vpnEgress.length > 0 ? qbitEgress.vpnEgress : '' },
-      { name: 'gluetun egress IP', ok: gluetunVpn.vpnEgress.length > 0, detail: gluetunVpn.vpnEgress.length > 0 ? gluetunVpn.vpnEgress : '' }
+      {
+        name: 'qbittorrent egress via VPN',
+        ok: qbitEgress?.vpnEgress !== undefined && qbitEgress.vpnEgress.length > 0,
+        detail: qbitEgress?.vpnEgress !== undefined && qbitEgress.vpnEgress.length > 0 ? qbitEgress.vpnEgress : 'pending',
+      },
+      { name: 'gluetun egress IP', ok: vpnEgressValue.length > 0, detail: vpnEgressValue.length > 0 ? vpnEgressValue : '' }
     );
 
-    const vpnPort = parseInt(gluetunVpn.forwardedPort.length > 0 ? gluetunVpn.forwardedPort : '', 10);
+    const vpnPort = parseInt(forwardedPort.length > 0 ? forwardedPort : '', 10);
     let okPort = false;
     let detail = '';
     if (!Number.isInteger(vpnPort)) {
-      detail = `forwarded port invalid (${gluetunVpn.forwardedPort.length > 0 ? gluetunVpn.forwardedPort : 'missing'})`;
+      detail = `forwarded port invalid (${forwardedPort.length > 0 ? forwardedPort : 'missing'})`;
     } else if (qbitService?.listenPort === null || qbitService?.listenPort === undefined) {
       detail = 'qBittorrent listen port unavailable';
     } else {
@@ -487,7 +505,6 @@ watchCrossSeedLog();
 void watchDockerEvents();
 
 // Start Docker stats watchers for all main containers (network throughput + memory usage)
-const containersToWatch = ['qbittorrent', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'cross-seed', 'flaresolverr'];
 for (const container of containersToWatch) {
   void watchContainerStats(container);
 }
