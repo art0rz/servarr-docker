@@ -183,7 +183,11 @@ class QbitClient:
             return user, password
         return None
 
-    def _establish_session(self, desired_username: Optional[str], desired_password: Optional[str]) -> tuple[bool, Optional[str]]:
+    def _establish_session(
+        self,
+        desired_username: Optional[str],
+        desired_password: Optional[str],
+    ) -> tuple[bool, Optional[str]]:
         attempts = 10
         delay = 3
         for attempt in range(1, attempts + 1):

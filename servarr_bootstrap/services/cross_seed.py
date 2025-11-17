@@ -56,7 +56,6 @@ class CrossSeedConfigurator:
         updated |= self._replace_array(contents, "sonarr", sonarr_urls)
         updated |= self._replace_array(contents, "radarr", radarr_urls)
         updated |= self._replace_array(contents, "torrentClients", torrent_clients)
-        link_dir = torznab_urls and torznab_urls[0]
         updated |= self._replace_array(contents, "linkDirs", [self.link_dir])
         contents["text"], change = self._replace_scalar(contents["text"], "seasonFromEpisodes", "null")
         updated |= change

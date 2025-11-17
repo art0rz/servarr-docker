@@ -382,7 +382,9 @@ class IntegrationRunner:
                 raise IntegrationError(str(exc)) from exc
 
         torrent_clients = []
-        qbit_host = "gluetun" if self.env.get("USE_VPN", "true").strip().lower() not in {"false", "0", "no", "off"} else "qbittorrent"
+        vpn_disabled_values = {"false", "0", "no", "off"}
+        vpn_enabled = self.env.get("USE_VPN", "true").strip().lower() not in vpn_disabled_values
+        qbit_host = "gluetun" if vpn_enabled else "qbittorrent"
         client_note = ""
         if username and password:
             from urllib.parse import quote
@@ -399,7 +401,7 @@ class IntegrationRunner:
         configurator = CrossSeedConfigurator(
             self.root_dir, self._silent_console, self.runtime.options.dry_run, link_dir=link_dir
         )
-        def apply_cross_seed():
+        def apply_cross_seed() -> None:
             configurator.ensure_config(
                 torznab_urls=torznab_urls,
                 sonarr_urls=[f"http://sonarr:8989?apikey={self.arr_api_keys.get('sonarr', '')}"],
@@ -477,7 +479,15 @@ class IntegrationRunner:
         provider = self.env.get("PORT_FORWARDING_PROVIDER", "")
         return bool(provider.strip())
 
-    def _retry(self, label: str, func, *, attempts: int = 5, delay: float = 3.0, exceptions: tuple = (Exception,)) -> any:
+    def _retry(
+        self,
+        label: str,
+        func,
+        *,
+        attempts: int = 5,
+        delay: float = 3.0,
+        exceptions: tuple = (Exception,),
+    ) -> any:
         last_exc = None
         for attempt in range(1, attempts + 1):
             try:

@@ -8,13 +8,11 @@ import subprocess
 from datetime import datetime
 from collections import OrderedDict
 from pathlib import Path
-from dataclasses import replace
 from typing import Any, Dict, Optional
 
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
@@ -40,9 +38,18 @@ CLEAN_STATUS_STYLES = {
     "failed": "red",
 }
 ERROR_HINTS = [
-    ("Config file not found", "Start the Sonarr/Radarr/Prowlarr containers once so config.xml is created, then rerun bootstrap."),
-    ("Unable to authenticate with qBittorrent", "Give qBittorrent a few more seconds to start and ensure the WebUI port isn't in use."),
-    ("docker compose", "Verify the Docker daemon is running and that you have permission to run docker commands (try `docker ps`)."),
+    (
+        "Config file not found",
+        "Start the Sonarr/Radarr/Prowlarr containers once so config.xml is created, then rerun bootstrap.",
+    ),
+    (
+        "Unable to authenticate with qBittorrent",
+        "Give qBittorrent a few more seconds to start and ensure the WebUI port isn't in use.",
+    ),
+    (
+        "docker compose",
+        "Verify the Docker daemon is running and that you have permission to run docker commands (try `docker ps`).",
+    ),
 ]
 
 
@@ -130,7 +137,11 @@ def main(
     dry_run: bool = typer.Option(False, "--dry-run", help="Run without applying changes."),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Disable interactive prompts."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show debug logs in the terminal."),
-    quickstart: bool = typer.Option(False, "--quickstart", help="Apply default configuration values for unattended runs."),
+    quickstart: bool = typer.Option(
+        False,
+        "--quickstart",
+        help="Apply default configuration values for unattended runs.",
+    ),
 ) -> None:
     """Bootstrapper entrypoint; defaults to the run command when no subcommand is provided."""
     log_path = configure_logging(verbose)
@@ -140,7 +151,7 @@ def main(
         verbose=verbose,
         quickstart=quickstart,
     )
-    context = _store_context(ctx, options=options, log_path=log_path)
+    _store_context(ctx, options=options, log_path=log_path)
 
     LOGGER.info("Logs written to %s", log_path)
 
@@ -181,7 +192,11 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Run without applying changes."),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Disable interactive prompts."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show debug logs in the terminal."),
-    quickstart: bool = typer.Option(False, "--quickstart", help="Apply default configuration values for unattended runs."),
+    quickstart: bool = typer.Option(
+        False,
+        "--quickstart",
+        help="Apply default configuration values for unattended runs.",
+    ),
 ) -> None:
     """Execute the bootstrap workflow (currently stubbed)."""
     context = ctx.ensure_object(dict)
@@ -203,7 +218,11 @@ def check(
     dry_run: bool = typer.Option(False, "--dry-run", help="(Ignored) maintained for CLI parity."),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Disable interactive prompts."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show debug logs in the terminal."),
-    quickstart: bool = typer.Option(False, "--quickstart", help="Apply default configuration values before running the sanity check."),
+    quickstart: bool = typer.Option(
+        False,
+        "--quickstart",
+        help="Apply default configuration values before running the sanity check.",
+    ),
 ) -> None:
     """Run the sanity scan without provisioning services."""
     context = ctx.ensure_object(dict)
@@ -391,7 +410,10 @@ def _validate_dependencies(require_docker: bool) -> None:
             except subprocess.CalledProcessError:
                 issues.append("`docker compose` failed. Upgrade Docker Compose or install the compose plugin.")
             except FileNotFoundError:
-                issues.append("`docker compose` is unavailable. Install Docker Compose or use Docker 20.10+ with the compose plugin.")
+                issues.append(
+                    "`docker compose` is unavailable. Install Docker Compose or use Docker 20.10+ "
+                    "with the compose plugin."
+                )
     if issues:
         for issue in issues:
             CONSOLE.print(f"[bold red]Dependency error:[/bold red] {issue}")

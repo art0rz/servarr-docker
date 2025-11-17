@@ -39,7 +39,12 @@ def perform_clean(
     """Execute the clean workflow."""
 
     dry_run = runtime.options.dry_run
-    LOGGER.info("Starting clean workflow (dry_run=%s, remove_logs=%s, remove_venv=%s)", dry_run, plan.remove_logs, plan.remove_venv)
+    LOGGER.info(
+        "Starting clean workflow (dry_run=%s, remove_logs=%s, remove_venv=%s)",
+        dry_run,
+        plan.remove_logs,
+        plan.remove_venv,
+    )
 
     def update(step: str, state: str, detail: str = "") -> None:
         if status_callback:
@@ -99,7 +104,13 @@ def perform_clean(
     LOGGER.info("Clean workflow completed")
 
 
-def docker_compose_down(root_dir: Path, *, dry_run: bool, runner: Optional[CommandRunner], env: Optional[Dict[str, str]]) -> None:
+def docker_compose_down(
+    root_dir: Path,
+    *,
+    dry_run: bool,
+    runner: Optional[CommandRunner],
+    env: Optional[Dict[str, str]],
+) -> None:
     compose_file = root_dir / "docker-compose.yml"
     if not compose_file.exists():
         LOGGER.warning("docker-compose.yml not found at %s; skipping docker compose down", compose_file)
