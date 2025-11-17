@@ -41,6 +41,7 @@ export function renderVpnCard(
   vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null },
   qbitEgress: QbitEgressProbeResult,
   qbitIngress: QbitIngressInfo | null,
+  pfSync: CheckResult | null,
 ): string {
   const v = vpn as GluetunProbeResult;
   const q = qbitEgress;
@@ -48,6 +49,8 @@ export function renderVpnCard(
   const ingressHost = ingress?.hostPort ?? '';
   const ingressPort = ingress?.listenPort ?? null;
   const ingressOk = (ingressHost.length > 0) || (ingressPort !== null);
+  const pfDetail = pfSync?.detail ?? '';
+  const pfText = pfDetail.length > 0 ? pfDetail : (pfSync?.ok ? 'OK' : 'Requires attention');
 
   return `
     <div class="card">
@@ -72,6 +75,12 @@ export function renderVpnCard(
       <div class="tag">Host Port: ${ingressHost.length > 0 ? ingressHost : 'pending'}</div>
       <div class="tag">qBittorrent Port: ${ingressPort !== null ? ingressPort : 'Unknown'}</div>
     </div>` : ''}
+    ${pfSync ? `
+    <div class="card">
+      <div class="status ${pfSync.ok ? 'ok' : 'fail'}">pf-sync</div>
+      <div><strong>pf-sync heartbeat</strong></div>
+      <div class="tag">${escapeHtml(pfText)}</div>
+    </div>` : ''}
   `;
 }
 
@@ -94,9 +103,9 @@ export function renderServiceCard(service: ServiceProbeResult, serviceChecks: Ar
 
   const serviceCheckTags = serviceChecks.map(check => {
     const label = check.name.replace(service.name, '').trim() || check.name;
-    const detailText = check.detail.length > 0 ? check.detail : (check.ok ? 'OK' : 'Requires attention');
-    const color = check.ok ? '#3fb950' : '#f85149';
-    return `<div class="tag" style="color: ${color};">${escapeHtml(label)}: ${escapeHtml(detailText)}</div>`;
+    let detailText = check.detail.length > 0 ? check.detail : (check.ok ? 'OK' : 'Requires attention');
+    detailText = detailText.replace(/^enabled:\s*/i, '');
+    return `<div class="tag">${escapeHtml(`${label}: ${detailText}`)}</div>`;
   }).join('');
 
   return `

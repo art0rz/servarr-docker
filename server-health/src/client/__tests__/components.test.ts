@@ -8,6 +8,8 @@ describe('Component Rendering', () => {
       const data: HealthData = {
         vpn: { name: 'VPN', ok: false, running: false, healthy: null },
         qbitEgress: { name: 'qBittorrent egress', container: 'qbittorrent', ok: true, vpnEgress: '' },
+        qbitIngress: null,
+        pfSync: null,
         services: [],
         checks: [
           { name: 'Check 1', ok: true, detail: '' },
@@ -31,6 +33,8 @@ describe('Component Rendering', () => {
       const data: HealthData = {
         vpn: { name: 'VPN', ok: false, running: false, healthy: null },
         qbitEgress: { name: 'qBittorrent egress', container: 'qbittorrent', ok: true, vpnEgress: '' },
+        qbitIngress: null,
+        pfSync: null,
         services: [],
         checks: [
           { name: 'Check 1', ok: true, detail: '' },
@@ -144,9 +148,8 @@ describe('Component Rendering', () => {
 
       const html = renderServiceCard(service, checks);
 
-      expect(html).toContain('download clients');
-      expect(html).toContain('enabled: qBittorrent');
-      expect(html).toContain('Custom check');
+      expect(html).toContain('download clients: qBittorrent');
+      expect(html).toContain('Custom check: needs auth');
       expect(html).toContain('needs auth');
     });
 

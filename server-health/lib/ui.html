@@ -156,13 +156,15 @@
       return `<div class="badge">${okCount} / ${total} checks passing</div>`;
     }
 
-    function renderVpnCard(vpn, qbitEgress, qbitIngress) {
+    function renderVpnCard(vpn, qbitEgress, qbitIngress, pfSync) {
       const v = vpn || {};
       const q = qbitEgress || {};
       const ingress = qbitIngress || null;
       const hostPort = ingress?.hostPort || '';
       const listenPort = ingress?.listenPort ?? null;
       const ingressOk = (hostPort.length > 0) || (listenPort !== null);
+      const pfDetail = pfSync?.detail || '';
+      const pfText = pfDetail.length > 0 ? pfDetail : (pfSync?.ok ? 'OK' : 'Requires attention');
 
       return `
         <div class="card">
@@ -187,6 +189,12 @@
           <div class="tag">Host Port: ${hostPort || 'pending'}</div>
           <div class="tag">qBittorrent Port: ${listenPort !== null ? listenPort : 'Unknown'}</div>
         </div>` : ''}
+        ${pfSync ? `
+        <div class="card">
+          <div class="status ${pfSync.ok ? 'ok' : 'fail'}">pf-sync</div>
+          <div><strong>pf-sync heartbeat</strong></div>
+          <div class="tag">${escapeHtml(pfText)}</div>
+        </div>` : ''}
       `;
     }
 
@@ -209,9 +217,9 @@
 
       const checkTags = serviceChecks.map(check => {
         const label = (check.name || '').replace(service.name || '', '').trim() || check.name;
-        const detail = check.detail && check.detail.length > 0 ? check.detail : (check.ok ? 'OK' : 'Requires attention');
-        const color = check.ok ? '#3fb950' : '#f85149';
-        return `<div class="tag" style="color: ${color};">${escapeHtml(label || '')}: ${escapeHtml(detail)}</div>`;
+        const rawDetail = check.detail && check.detail.length > 0 ? check.detail : (check.ok ? 'OK' : 'Requires attention');
+        const detail = rawDetail.replace(/^enabled:\s*/i, '');
+        return `<div class="tag">${escapeHtml((label || '') + ': ' + detail)}</div>`;
       }).join('');
 
       return `
@@ -287,7 +295,7 @@
         if (vpnEnabled) {
           vpnSection.style.display = 'block';
           vpnDiv.style.display = 'grid';
-          vpnDiv.innerHTML = renderVpnCard(data.vpn, data.qbitEgress, data.qbitIngress || null);
+          vpnDiv.innerHTML = renderVpnCard(data.vpn, data.qbitEgress, data.qbitIngress || null, data.pfSync || null);
         } else {
           vpnSection.style.display = 'none';
           vpnDiv.style.display = 'none';
