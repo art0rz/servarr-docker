@@ -495,6 +495,7 @@ export function updateCharts(data: Array<ChartDataPoint>) {
     (max, point) => Math.max(max, point.downloadRate, point.uploadRate),
     0
   );
+  const previousScale = currentRateScale;
   currentRateScale = selectRateScale(maxRateBytes);
   const rateDivisor = currentRateScale.divisor;
 
@@ -544,7 +545,15 @@ export function updateCharts(data: Array<ChartDataPoint>) {
       }
     }
 
-    networkChartInstance.update('none');
+    const unitChanged = previousScale.unit !== currentRateScale.unit;
+    if (unitChanged) {
+      const previousAnimation = networkChartInstance.options.animation;
+      networkChartInstance.options.animation = false;
+      networkChartInstance.update();
+      networkChartInstance.options.animation = previousAnimation;
+    } else {
+      networkChartInstance.update('none');
+    }
     loadChartInstance.update('none');
   }
 
