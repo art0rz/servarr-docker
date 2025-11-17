@@ -15,6 +15,11 @@ function formatRate(bytes: number | null): string {
     value /= 1024;
     unitIndex++;
   }
+  // Prefer the next unit when we're close to the boundary (>= 512 of current unit)
+  if (value >= 512 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
   const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
   const formatted = value.toFixed(precision);
   const unit = units[unitIndex];

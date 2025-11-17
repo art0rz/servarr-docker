@@ -178,6 +178,7 @@ function resolveGitRef() {
 
 async function saveChartData() {
   try {
+    await fs.mkdir(HEALTH_DATA_DIR, { recursive: true });
     await fs.writeFile(CHART_DATA_FILE, JSON.stringify(healthCache.chartData), 'utf-8');
   } catch (error) {
     logger.error({ err: error }, 'Failed to save chart data');
@@ -201,9 +202,13 @@ async function loadChartData() {
 
     healthCache.chartData = validData;
     logger.info({ dataPoints: validData.length }, 'Loaded chart data from disk');
-  } catch {
-    // File doesn't exist on first run, that's ok
-    logger.info('No existing chart data found (this is normal on first run)');
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      logger.info('No existing chart data found (this is normal on first run)');
+    } else {
+      logger.error({ err }, 'Failed to load chart data');
+    }
   }
 }
 
