@@ -4,8 +4,25 @@ import type { HealthData, ServiceProbeResult, CheckResult, GluetunProbeResult, Q
 const escapeHtml = (str: string | number): string =>
   String(str).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const formatRate = (bytes: number | null): string =>
-  bytes !== null && bytes > 0 ? `${(bytes / 1024 / 1024).toFixed(2)} MB/s` : '0';
+const RATE_UNITS: Array<string> = ['B/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
+
+function formatRate(bytes: number | null): string {
+  if (bytes === null || bytes <= 0) return '0';
+  const units = RATE_UNITS;
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  const formatted = value.toFixed(precision);
+  const unit = units[unitIndex];
+  const fallbackUnitIndex = units.length - 1;
+  const fallbackUnit = fallbackUnitIndex >= 0 ? units[fallbackUnitIndex] : undefined;
+  const displayUnit = unit ?? fallbackUnit ?? 'B/s';
+  return `${formatted} ${displayUnit}`;
+}
 
 // Render functions
 export function renderSummary(data: HealthData): string {

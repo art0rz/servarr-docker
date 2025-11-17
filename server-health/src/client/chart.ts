@@ -10,6 +10,39 @@ let loadChartInstance: Chart | null = null;
 let responseTimeChartInstance: Chart | null = null;
 let memoryChartInstance: Chart | null = null;
 
+const RATE_UNITS = [
+  { unit: 'B/s', divisor: 1 },
+  { unit: 'KB/s', divisor: 1024 },
+  { unit: 'MB/s', divisor: 1024 * 1024 },
+  { unit: 'GB/s', divisor: 1024 * 1024 * 1024 },
+  { unit: 'TB/s', divisor: 1024 * 1024 * 1024 * 1024 },
+] as const;
+
+type RateScale = typeof RATE_UNITS[number];
+let currentRateScale: RateScale = RATE_UNITS[2]; // Default to MB/s
+interface AxisWithOptionalTitle {
+  title?: { display?: boolean; text?: string; color?: string };
+}
+
+function selectRateScale(maxBytes: number): RateScale {
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
+    return RATE_UNITS[2];
+  }
+  for (let i = RATE_UNITS.length - 1; i >= 0; i--) {
+    const candidate = RATE_UNITS[i];
+    if (candidate === undefined) continue;
+    if (maxBytes >= candidate.divisor || i === 0) {
+      return candidate;
+    }
+  }
+  return RATE_UNITS[2];
+}
+
+function formatScaledRate(value: number): string {
+  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return value.toFixed(precision);
+}
+
 export type TimeResolution = '1h' | '1d' | '1w' | '1m';
 let currentResolution: TimeResolution = '1h';
 
@@ -41,7 +74,7 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
     data: {
       datasets: [
         {
-          label: 'Download (MB/s)',
+          label: `Download (${currentRateScale.unit})`,
           data: [],
           borderColor: 'rgb(75, 192, 192)',
           backgroundColor: 'rgba(75, 192, 192, 0.2)',
@@ -52,7 +85,7 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
           pointHitRadius: 8,
         },
         {
-          label: 'Upload (MB/s)',
+          label: `Upload (${currentRateScale.unit})`,
           data: [],
           borderColor: 'rgb(255, 99, 132)',
           backgroundColor: 'rgba(255, 99, 132, 0.2)',
@@ -96,7 +129,7 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
           beginAtZero: true,
           title: {
             display: true,
-            text: 'MB/s',
+            text: currentRateScale.unit,
             color: '#c9d1d9',
           },
           ticks: {
@@ -119,7 +152,7 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
               const label = context.dataset.label ?? '';
               const value = context.parsed.y;
               if (value === null) return label;
-              return `${label}: ${value.toFixed(2)} MB/s`;
+              return `${label}: ${formatScaledRate(value)} ${currentRateScale.unit}`;
             },
           },
         },
@@ -458,14 +491,21 @@ export function updateCharts(data: Array<ChartDataPoint>) {
   const minTime = now - timeRange;
 
   // Convert data to Chart.js format with timestamps
+  const maxRateBytes = aggregated.reduce(
+    (max, point) => Math.max(max, point.downloadRate, point.uploadRate),
+    0
+  );
+  currentRateScale = selectRateScale(maxRateBytes);
+  const rateDivisor = currentRateScale.divisor;
+
   const downloadData = aggregated.map((point) => ({
     x: point.timestamp,
-    y: point.downloadRate / 1024 / 1024, // Convert bytes to MB
+    y: rateDivisor > 0 ? point.downloadRate / rateDivisor : 0,
   }));
 
   const uploadData = aggregated.map((point) => ({
     x: point.timestamp,
-    y: point.uploadRate / 1024 / 1024, // Convert bytes to MB
+    y: rateDivisor > 0 ? point.uploadRate / rateDivisor : 0,
   }));
 
   const loadData = aggregated.map((point) => ({
@@ -481,6 +521,8 @@ export function updateCharts(data: Array<ChartDataPoint>) {
   if (downloadDataset !== undefined && uploadDataset !== undefined && loadDataset !== undefined) {
     downloadDataset.data = downloadData;
     uploadDataset.data = uploadData;
+    downloadDataset.label = `Download (${currentRateScale.unit})`;
+    uploadDataset.label = `Upload (${currentRateScale.unit})`;
     loadDataset.data = loadData;
 
     // Update x-axis bounds
@@ -491,6 +533,15 @@ export function updateCharts(data: Array<ChartDataPoint>) {
     if (loadChartInstance.options.scales?.['x'] !== undefined) {
       loadChartInstance.options.scales['x'].min = minTime;
       loadChartInstance.options.scales['x'].max = now;
+    }
+
+    const yScale = networkChartInstance.options.scales?.['y'] as AxisWithOptionalTitle | undefined;
+    if (yScale !== undefined) {
+      if (yScale.title === undefined) {
+        yScale.title = { display: true, text: currentRateScale.unit, color: '#c9d1d9' };
+      } else {
+        yScale.title.text = currentRateScale.unit;
+      }
     }
 
     networkChartInstance.update('none');
