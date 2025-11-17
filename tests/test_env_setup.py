@@ -44,7 +44,10 @@ class EnvSetupTests(unittest.TestCase):
                 "2468",
                 "3000",
             ]
-            with patch("servarr_bootstrap.env_setup.typer.prompt", side_effect=prompt_values), patch("servarr_bootstrap.env_setup.detect_timezone", return_value="UTC"):
+            with (
+                patch("servarr_bootstrap.env_setup.typer.prompt", side_effect=prompt_values),
+                patch("servarr_bootstrap.env_setup.detect_timezone", return_value="UTC"),
+            ):
                 interactive_env_setup(root, console)
 
             env_file = root / ".env"

@@ -40,6 +40,8 @@ services:
     network_mode: "service:gluetun"             # all qBit traffic exits via VPN
     depends_on: [gluetun]
     restart: unless-stopped
+    stop_grace_period: 30s                      # Allow time for session saving
+    stop_signal: SIGTERM                        # Graceful shutdown signal
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -64,6 +66,8 @@ services:
     container_name: qbittorrent
     networks: [media]
     restart: unless-stopped
+    stop_grace_period: 30s                      # Allow time for session saving
+    stop_signal: SIGTERM                        # Graceful shutdown signal
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -300,6 +304,8 @@ services:
       - PORT=3000
       - TZ=${TZ}
       - USE_VPN=${USE_VPN:-true}
+      - MEDIA_DIR=${MEDIA_DIR}
+      - HEALTH_DATA_DIR=/health-data
       - COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-servarr}
       - SONARR_PORT=${SONARR_PORT:-8989}
       - RADARR_PORT=${RADARR_PORT:-7878}
@@ -312,6 +318,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config:/config:ro
+      - ./config/health-server:/health-data
+      - ${MEDIA_DIR}:${MEDIA_DIR}:ro
+      - gluetun-tmp:/tmp/gluetun:ro
     ports:
       - "${HEALTH_PORT:-3000}:3000"
     restart: unless-stopped

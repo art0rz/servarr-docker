@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Stack Health</title>
+</head>
+<body>
+  <header>
+    <strong>Stack Health</strong>
+    <button class="btn" onclick="window.refresh()">Refresh</button>
+  </header>
+
+  <main>
+    <div id="summary"></div>
+
+    <div class="resolution-selector">
+      <button class="resolution-btn active" data-resolution="1h">1h</button>
+      <button class="resolution-btn" data-resolution="1d">1d</button>
+      <button class="resolution-btn" data-resolution="1w">1w</button>
+      <button class="resolution-btn" data-resolution="1m">1m</button>
+    </div>
+
+    <h2>Network Traffic</h2>
+    <div class="chart-container">
+      <canvas id="networkChart"></canvas>
+    </div>
+
+    <h2>Server Load</h2>
+    <div class="chart-container">
+      <canvas id="loadChart"></canvas>
+    </div>
+
+    <h2>API Response Times</h2>
+    <div class="chart-container">
+      <canvas id="responseTimeChart"></canvas>
+    </div>
+
+    <h2>Memory Usage</h2>
+    <div class="chart-container">
+      <canvas id="memoryChart"></canvas>
+    </div>
+
+    <h2>VPN</h2>
+    <div class="grid" id="vpn"></div>
+
+    <h2>Services</h2>
+    <div class="grid" id="services"></div>
+
+    <h2>Checks</h2>
+    <div class="grid" id="checks"></div>
+  </main>
+
+  <script type="module" src="/main.ts"></script>
+</body>
+</html>

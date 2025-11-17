@@ -1,0 +1,7 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["servarr_bootstrap", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F"]

@@ -24,7 +24,7 @@ class CliCheckCommandTests(unittest.TestCase):
             "servarr_bootstrap.cli._ensure_runtime_context", return_value=self.runtime
         ) as ensure_ctx, patch("servarr_bootstrap.cli.run_sanity_scan", return_value=MagicMock()) as run_scan, patch(
             "servarr_bootstrap.cli.render_report"
-        ) as render_report:
+        ) as render_report, patch("servarr_bootstrap.cli._validate_dependencies"):
             result = self.runner.invoke(cli.APP, ["check"])
 
         self.assertEqual(result.exit_code, 0)
@@ -47,7 +47,7 @@ class CliCheckCommandTests(unittest.TestCase):
             "servarr_bootstrap.cli.run_sanity_scan", return_value=MagicMock()
         ), patch(
             "servarr_bootstrap.cli.render_report"
-        ):
+        ), patch("servarr_bootstrap.cli._validate_dependencies"):
             result = self.runner.invoke(cli.APP, ["run", "--quickstart"])
 
         self.assertEqual(result.exit_code, 0)

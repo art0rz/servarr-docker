@@ -6,12 +6,13 @@
    - Align on scope via issues/discussions; keep PRs scoped to a roadmap step when possible.
 2. **Environment Setup**
    - Use `./bootstrap.sh --dev` (future) or follow README to create the Python venv.
-   - Install dev dependencies (`pip install -e .[dev]` once available).
+   - Install dev dependencies via `pip install -r requirements-dev.txt`.
 3. **Coding Standards**
    - Favor Typer/Rich idioms, type hints, and static analysis (mypy/ruff once configured).
    - Write modular code with dependency injection for testability.
    - Keep secrets out of logs; reuse utilities from `servarr_bootstrap.logging`.
 4. **Testing**
+   - Run `python -m ruff check servarr_bootstrap tests` and update/fix lint issues.
    - Add/ update unit tests alongside code changes.
    - Ensure `./bootstrap.sh --dry-run --ci` succeeds locally.
    - For integration work, run bootstrap end-to-end against a dockerized stack before opening a PR.

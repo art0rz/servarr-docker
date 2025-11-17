@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
-import stat
 import subprocess
 import time
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Dict, Iterable, List, Optional
 
 import requests
 from rich.console import Console
@@ -32,6 +30,7 @@ CONFIG_DIRECTORIES = (
     "bazarr",
     "cross-seed",
     "recyclarr",
+    "health-server",
 )
 MEDIA_DIRECTORIES = (
     "downloads/incomplete",
@@ -119,7 +118,9 @@ def _ensure_config_dirs(config_root: Path, console: Console, dry_run: bool) -> N
         created.append(str(path))
     if created:
         count = len(created)
-        console.print(f"[cyan]Config:[/] {'[dry-run] ' if dry_run else ''}Created {count} director{'ies' if count != 1 else 'y'}")
+        status_prefix = "[dry-run] " if dry_run else ""
+        suffix = "ies" if count != 1 else "y"
+        console.print(f"[cyan]Config:[/] {status_prefix}Created {count} director{suffix}")
         LOGGER.debug("Created config directories: %s", ", ".join(created))
 
 
@@ -135,11 +136,19 @@ def _ensure_media_dirs(media_dir: Path, console: Console, dry_run: bool) -> None
         created.append(str(target))
     if created:
         count = len(created)
-        console.print(f"[cyan]Media:[/] {'[dry-run] ' if dry_run else ''}Created {count} director{'ies' if count != 1 else 'y'}")
+        status_prefix = "[dry-run] " if dry_run else ""
+        suffix = "ies" if count != 1 else "y"
+        console.print(f"[cyan]Media:[/] {status_prefix}Created {count} director{suffix}")
         LOGGER.debug("Created media directories: %s", ", ".join(created))
 
 
-def _apply_permissions(media_dir: Path, puid: Optional[str], pgid: Optional[str], console: Console, dry_run: bool) -> None:
+def _apply_permissions(
+    media_dir: Path,
+    puid: Optional[str],
+    pgid: Optional[str],
+    console: Console,
+    dry_run: bool,
+) -> None:
     if not puid or not pgid:
         console.print("[yellow]Skipping permission fix: PUID/PGID not set.[/yellow]")
         LOGGER.warning("Cannot fix permissions without PUID/PGID values.")
@@ -150,7 +159,8 @@ def _apply_permissions(media_dir: Path, puid: Optional[str], pgid: Optional[str]
     except ValueError as exc:
         raise SetupError(f"Invalid PUID/PGID values: {puid}/{pgid}") from exc
 
-    console.print(f"[cyan]Permissions:[/] {'[dry-run] ' if dry_run else ''}Applying ownership {uid}:{gid} to {media_dir}")
+    status_prefix = "[dry-run] " if dry_run else ""
+    console.print(f"[cyan]Permissions:[/] {status_prefix}Applying ownership {uid}:{gid} to {media_dir}")
     LOGGER.info("Applying ownership %s:%s to %s", uid, gid, media_dir)
     if dry_run:
         return
@@ -161,7 +171,13 @@ def _apply_permissions(media_dir: Path, puid: Optional[str], pgid: Optional[str]
         _set_owner_and_mode(target, uid, gid, console, skipped_roots)
 
 
-def _apply_config_permissions(config_root: Path, puid: Optional[str], pgid: Optional[str], console: Console, dry_run: bool) -> None:
+def _apply_config_permissions(
+    config_root: Path,
+    puid: Optional[str],
+    pgid: Optional[str],
+    console: Console,
+    dry_run: bool,
+) -> None:
     if not puid or not pgid:
         return
     try:

@@ -154,7 +154,8 @@ A small unit suite validates the env wizard:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+python -m ruff check servarr_bootstrap tests
 python -m unittest tests/test_env_setup
 ```
 
@@ -177,7 +178,7 @@ Check the latest log (`logs/bootstrap-latest.log`) for detailed stack traces; re
 
 Issues and PRs are welcome. Please:
 
-1. Run `python -m unittest tests/test_env_setup`.
+1. Run `python -m ruff check servarr_bootstrap tests` and `python -m unittest tests/test_env_setup`.
 2. If Vagrant changes are involved, verify with `vagrant up && vagrant provision --bootstrap:run`.
 3. Describe the change and update docs (`README.md`, `docs/vagrant.md`, etc.) as appropriate.
 
@@ -547,7 +548,8 @@ docker exec qbittorrent curl https://ifconfig.io
 │   ├── sonarr/
 │   ├── radarr/
 │   ├── prowlarr/
-│   └── bazarr/
+│   ├── bazarr/
+│   └── health-server/
 └── server-health/         # Health monitoring service
     ├── Dockerfile
     ├── health-server.js

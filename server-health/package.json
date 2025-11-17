@@ -4,9 +4,52 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node health-server.js"
+    "start": "node dist/server/health-server.js",
+    "dev:server": "tsup --watch",
+    "dev:client": "vite",
+    "build:server": "tsup",
+    "build:client": "vite build",
+    "build": "npm run build:server && npm run build:client",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "type-check": "tsc --noEmit && tsc --project tsconfig.client.json --noEmit",
+    "check": "npm run lint && npm run type-check",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "@types/ws": "^8.18.1",
+    "chart.js": "^4.5.1",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "chokidar": "^4.0.3",
+    "date-fns": "^4.1.0",
+    "dockerode": "^4.0.9",
+    "express": "^4.19.2",
+    "got": "^14.6.4",
+    "node-cron": "^4.2.1",
+    "opossum": "^9.0.0",
+    "pino": "^10.1.0",
+    "pino-pretty": "^13.1.2",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/chart.js": "^2.9.41",
+    "@types/dockerode": "^3.3.46",
+    "@types/express": "^5.0.5",
+    "@types/node": "^24.10.1",
+    "@types/opossum": "^8.1.9",
+    "@vitest/coverage-v8": "^4.0.9",
+    "@vitest/ui": "^4.0.9",
+    "eslint": "^9.39.1",
+    "happy-dom": "^20.0.10",
+    "jiti": "^2.6.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vite": "^7.2.2",
+    "vitest": "^4.0.9"
   }
 }
