@@ -70,19 +70,38 @@ describe('chart-data utilities', () => {
       expect(older?.responseTimes['Radarr']).toBe(50);
       expect(older?.memoryUsage['radarr']).toBe(256);
     });
+
+    it('averages 1h resolution data into 1-minute buckets', () => {
+      const now = 3_600_000;
+      const points: Array<ChartDataPoint> = [
+        buildPoint(now - 10_000, { downloadRate: 4000 }),
+        buildPoint(now - 20_000, { downloadRate: 2000 }),
+        buildPoint(now - 90_000, { downloadRate: 1000 }),
+      ];
+
+      const aggregated = aggregateData(points, '1h', now);
+      expect(aggregated).toHaveLength(2);
+      const latest = aggregated[aggregated.length - 1];
+      expect(latest?.downloadRate).toBeCloseTo(3000);
+      const older = aggregated[0];
+      expect(older?.downloadRate).toBeCloseTo(1000);
+    });
   });
 
   describe('prepareChartSeries', () => {
-    function makePoints(_resolution: TimeResolution, now: number): Array<ChartDataPoint> {
+    function makePoints(resolution: TimeResolution, now: number): Array<ChartDataPoint> {
+      const [firstOffset, secondOffset] = resolution === '1h'
+        ? ([70_000, 5_000] as const)
+        : ([10_000, 5_000] as const);
       return [
-        buildPoint(now - 10_000, {
+        buildPoint(now - firstOffset, {
           downloadRate: 1024 * 1024 * 3,
           uploadRate: 1024 * 512,
           load1: 1.2,
           responseTimes: { Sonarr: 120 },
           memoryUsage: { qbittorrent: 512 },
         }),
-        buildPoint(now - 5_000, {
+        buildPoint(now - secondOffset, {
           downloadRate: 1024 * 1024 * 5,
           uploadRate: 1024 * 256,
           load1: 0.9,

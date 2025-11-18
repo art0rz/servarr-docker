@@ -94,7 +94,7 @@ function getResolutionConfig(resolution: TimeResolution) {
   if (resolution === '1d') {
     return { windowMs: 24 * 60 * 60 * 1000, bucketMs: 60 * 1000 };
   }
-  return { windowMs: 60 * 60 * 1000, bucketMs: 0 };
+  return { windowMs: 60 * 60 * 1000, bucketMs: 60 * 1000 };
 }
 
 function decompressChartData(compact: CompactChartData): ChartSeriesStore {

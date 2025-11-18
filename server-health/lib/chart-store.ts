@@ -47,7 +47,7 @@ interface ChartStoreHelpers {
 
 export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers {
   const RESOLUTION_CONFIG: Record<TimeResolution, { windowMs: number; bucketMs: number }> = {
-    '1h': { windowMs: 60 * 60 * 1000, bucketMs: 0 },
+    '1h': { windowMs: 60 * 60 * 1000, bucketMs: 60 * 1000 },
     '1d': { windowMs: 24 * 60 * 60 * 1000, bucketMs: 60 * 1000 },
     '1w': { windowMs: 7 * 24 * 60 * 60 * 1000, bucketMs: 5 * 60 * 1000 },
     '1m': { windowMs: retentionMs, bucketMs: 30 * 60 * 1000 },

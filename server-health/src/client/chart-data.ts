@@ -19,7 +19,7 @@ export const RESOLUTION_TIME_RANGES: Record<TimeResolution, number> = {
 };
 
 const RESOLUTION_BUCKET_MS: Record<TimeResolution, number> = {
-  '1h': 0,
+  '1h': 60 * 1000,
   '1d': 60 * 1000,
   '1w': 5 * 60 * 1000,
   '1m': 30 * 60 * 1000,
