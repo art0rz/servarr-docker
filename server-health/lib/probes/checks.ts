@@ -41,7 +41,7 @@ async function checkArrDownloadClients(label: string, url: string | undefined, a
   }
 
   const detail = enabled.length > 0
-    ? `enabled: ${summarizeNames(enabled)}`
+    ? summarizeNames(enabled)
     : 'no enabled clients';
 
   return {
@@ -90,7 +90,7 @@ export async function checkProwlarrIndexers(url: string | undefined, apiKey: str
   }
 
   const detail = enabled.length > 0
-    ? `enabled: ${summarizeNames(enabled)}`
+    ? summarizeNames(enabled)
     : 'no enabled indexers';
 
   return {

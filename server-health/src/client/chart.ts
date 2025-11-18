@@ -1,6 +1,17 @@
-import { Chart, LineController, LineElement, PointElement, LinearScale, TimeScale, Title, Tooltip, Legend, Filler, type ChartConfiguration } from 'chart.js';
+import { Chart, LineController, LineElement, PointElement, LinearScale, TimeScale, Title, Tooltip, Legend, Filler, type ChartConfiguration, type TooltipItem } from 'chart.js';
 import 'chartjs-adapter-date-fns';
-import type { ChartDataPoint } from './types';
+import type { ChartDataPoint, TimeResolution } from './types';
+export type { TimeResolution } from './types';
+import { formatScaledRate, prepareChartSeries, DEFAULT_RATE_SCALE } from './chart-data';
+import type { RateScale } from './chart-data';
+
+interface TooltipDatasetMeta {
+  label?: string;
+}
+
+interface TooltipParsedMeta {
+  y?: number;
+}
 
 // Register Chart.js components
 Chart.register(LineController, LineElement, PointElement, LinearScale, TimeScale, Title, Tooltip, Legend, Filler);
@@ -9,41 +20,25 @@ let networkChartInstance: Chart | null = null;
 let loadChartInstance: Chart | null = null;
 let responseTimeChartInstance: Chart | null = null;
 let memoryChartInstance: Chart | null = null;
+let torrentDownloadChartInstance: Chart | null = null;
+let torrentUploadChartInstance: Chart | null = null;
 
-const RATE_UNITS = [
-  { unit: 'B/s', divisor: 1 },
-  { unit: 'KB/s', divisor: 1024 },
-  { unit: 'MB/s', divisor: 1024 * 1024 },
-  { unit: 'GB/s', divisor: 1024 * 1024 * 1024 },
-  { unit: 'TB/s', divisor: 1024 * 1024 * 1024 * 1024 },
-] as const;
+function createChartInstance(
+  existing: Chart | null,
+  canvasElement: HTMLCanvasElement,
+  config: ChartConfiguration
+): Chart {
+  if (existing !== null) {
+    existing.destroy();
+  }
+  return new Chart(canvasElement, config);
+}
 
-type RateScale = typeof RATE_UNITS[number];
-let currentRateScale: RateScale = RATE_UNITS[2]; // Default to MB/s
+let currentRateScale: RateScale = DEFAULT_RATE_SCALE; // Default to MB/s
 interface AxisWithOptionalTitle {
   title?: { display?: boolean; text?: string; color?: string };
 }
 
-function selectRateScale(maxBytes: number): RateScale {
-  if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
-    return RATE_UNITS[2];
-  }
-  for (let i = RATE_UNITS.length - 1; i >= 0; i--) {
-    const candidate = RATE_UNITS[i];
-    if (candidate === undefined) continue;
-    if (maxBytes >= candidate.divisor || i === 0) {
-      return candidate;
-    }
-  }
-  return RATE_UNITS[2];
-}
-
-function formatScaledRate(value: number): string {
-  const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-  return value.toFixed(precision);
-}
-
-export type TimeResolution = '1h' | '1d' | '1w' | '1m';
 let currentResolution: TimeResolution = '1h';
 
 const serviceColors: Record<string, { border: string; background: string }> = {
@@ -68,34 +63,81 @@ const containerColors: Record<string, { border: string; background: string }> = 
   'gluetun': { border: 'rgb(100, 181, 246)', background: 'rgba(100, 181, 246, 0.2)' },
 };
 
-export function initNetworkChart(canvasElement: HTMLCanvasElement) {
-  const config: ChartConfiguration = {
+const torrentColors = [
+  { border: 'rgb(26, 188, 156)', background: 'rgba(26, 188, 156, 0.15)' },
+  { border: 'rgb(231, 76, 60)', background: 'rgba(231, 76, 60, 0.15)' },
+  { border: 'rgb(52, 152, 219)', background: 'rgba(52, 152, 219, 0.15)' },
+  { border: 'rgb(155, 89, 182)', background: 'rgba(155, 89, 182, 0.15)' },
+  { border: 'rgb(241, 196, 15)', background: 'rgba(241, 196, 15, 0.15)' },
+];
+
+type LineChartConfig = ChartConfiguration<'line'>;
+type LineTooltipItem = TooltipItem<'line'>;
+type TooltipFormatter = (context: LineTooltipItem) => string;
+
+function createTimeScaleOptions() {
+  return {
+    type: 'time' as const,
+    time: {
+      displayFormats: {
+        minute: 'HH:mm',
+        hour: 'HH:mm',
+        day: 'MMM d',
+      },
+    },
+    ticks: {
+      color: '#c9d1d9',
+      maxRotation: 0,
+      autoSkip: true,
+      autoSkipPadding: 20,
+    },
+    grid: {
+      color: 'rgba(255, 255, 255, 0.1)',
+    },
+  };
+}
+
+function createLinearScaleOptions(title: string) {
+  return {
+    type: 'linear' as const,
+    beginAtZero: true,
+    title: {
+      display: true,
+      text: title,
+      color: '#c9d1d9',
+    },
+    ticks: {
+      color: '#c9d1d9',
+    },
+    grid: {
+      color: 'rgba(255, 255, 255, 0.1)',
+    },
+  };
+}
+
+function createTooltipFormatter(formatValue: (value: number) => string): TooltipFormatter {
+  return (context: LineTooltipItem) => {
+    const meta = context as unknown as {
+      dataset?: TooltipDatasetMeta;
+      parsed?: TooltipParsedMeta;
+    };
+    const datasetLabel = typeof meta.dataset?.label === 'string' ? meta.dataset.label : '';
+    const parsedY = typeof meta.parsed?.y === 'number' ? meta.parsed.y : undefined;
+    if (parsedY === undefined) return datasetLabel;
+    const formatted = formatValue(parsedY);
+    return `${datasetLabel}: ${formatted}`;
+  };
+}
+
+function createLineChartConfig(params: {
+  datasets: LineChartConfig['data']['datasets'];
+  yTitle: string;
+  tooltipFormatter: TooltipFormatter;
+}): LineChartConfig {
+  return {
     type: 'line',
     data: {
-      datasets: [
-        {
-          label: `Download (${currentRateScale.unit})`,
-          data: [],
-          borderColor: 'rgb(75, 192, 192)',
-          backgroundColor: 'rgba(75, 192, 192, 0.2)',
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          pointHitRadius: 8,
-        },
-        {
-          label: `Upload (${currentRateScale.unit})`,
-          data: [],
-          borderColor: 'rgb(255, 99, 132)',
-          backgroundColor: 'rgba(255, 99, 132, 0.2)',
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          pointHitRadius: 8,
-        },
-      ],
+      datasets: params.datasets,
     },
     options: {
       responsive: true,
@@ -105,40 +147,8 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
         mode: 'index',
       },
       scales: {
-        x: {
-          type: 'time',
-          time: {
-            displayFormats: {
-              minute: 'HH:mm',
-              hour: 'HH:mm',
-              day: 'MMM d',
-            },
-          },
-          ticks: {
-            color: '#c9d1d9',
-            maxRotation: 0,
-            autoSkip: true,
-            autoSkipPadding: 20,
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.1)',
-          },
-        },
-        y: {
-          type: 'linear',
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: currentRateScale.unit,
-            color: '#c9d1d9',
-          },
-          ticks: {
-            color: '#c9d1d9',
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.1)',
-          },
-        },
+        x: createTimeScaleOptions(),
+        y: createLinearScaleOptions(params.yTitle),
       },
       plugins: {
         legend: {
@@ -148,182 +158,106 @@ export function initNetworkChart(canvasElement: HTMLCanvasElement) {
         },
         tooltip: {
           callbacks: {
-            label: (context) => {
-              const label = context.dataset.label ?? '';
-              const value = context.parsed.y;
-              if (value === null) return label;
-              return `${label}: ${formatScaledRate(value)} ${currentRateScale.unit}`;
-            },
+            label: params.tooltipFormatter,
           },
         },
       },
     },
   };
+}
 
-  networkChartInstance = new Chart(canvasElement, config);
+export function initNetworkChart(canvasElement: HTMLCanvasElement) {
+  const config = createLineChartConfig({
+    datasets: [
+      {
+        label: `Download (${currentRateScale.unit})`,
+        data: [],
+        borderColor: 'rgb(75, 192, 192)',
+        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 8,
+      },
+      {
+        label: `Upload (${currentRateScale.unit})`,
+        data: [],
+        borderColor: 'rgb(255, 99, 132)',
+        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 8,
+      },
+    ],
+    yTitle: currentRateScale.unit,
+    tooltipFormatter: createTooltipFormatter((value) => `${formatScaledRate(value)} ${currentRateScale.unit}`),
+  });
+  networkChartInstance = createChartInstance(networkChartInstance, canvasElement, config);
   return networkChartInstance;
 }
 
 export function initLoadChart(canvasElement: HTMLCanvasElement) {
-  const config: ChartConfiguration = {
-    type: 'line',
-    data: {
-      datasets: [
-        {
-          label: 'Load (1m)',
-          data: [],
-          borderColor: 'rgb(255, 206, 86)',
-          backgroundColor: 'rgba(255, 206, 86, 0.2)',
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          pointHitRadius: 8,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {
-        intersect: false,
-        mode: 'index',
+  const config = createLineChartConfig({
+    datasets: [
+      {
+        label: 'Load (1m)',
+        data: [],
+        borderColor: 'rgb(255, 206, 86)',
+        backgroundColor: 'rgba(255, 206, 86, 0.2)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 8,
       },
-      scales: {
-        x: {
-          type: 'time',
-          time: {
-            displayFormats: {
-              minute: 'HH:mm',
-              hour: 'HH:mm',
-              day: 'MMM d',
-            },
-          },
-          ticks: {
-            color: '#c9d1d9',
-            maxRotation: 0,
-            autoSkip: true,
-            autoSkipPadding: 20,
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.1)',
-          },
-        },
-        y: {
-          type: 'linear',
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Load Average',
-            color: '#c9d1d9',
-          },
-          ticks: {
-            color: '#c9d1d9',
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.1)',
-          },
-        },
-      },
-      plugins: {
-        legend: {
-          labels: {
-            color: '#c9d1d9',
-          },
-        },
-        tooltip: {
-          callbacks: {
-            label: (context) => {
-              const label = context.dataset.label ?? '';
-              const value = context.parsed.y;
-              if (value === null) return label;
-              return `${label}: ${value.toFixed(2)}`;
-            },
-          },
-        },
-      },
-    },
-  };
-
-  loadChartInstance = new Chart(canvasElement, config);
+    ],
+    yTitle: 'Load Average',
+    tooltipFormatter: createTooltipFormatter((value) => value.toFixed(2)),
+  });
+  loadChartInstance = createChartInstance(loadChartInstance, canvasElement, config);
   return loadChartInstance;
 }
 
 export function initResponseTimeChart(canvasElement: HTMLCanvasElement) {
-  const config: ChartConfiguration = {
-    type: 'line',
-    data: {
-      datasets: [],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {
-        intersect: false,
-        mode: 'index',
-      },
-      scales: {
-        x: {
-          type: 'time',
-          time: {
-            displayFormats: {
-              minute: 'HH:mm',
-              hour: 'HH:mm',
-              day: 'MMM d',
-            },
-          },
-          ticks: {
-            color: '#c9d1d9',
-            maxRotation: 0,
-            autoSkip: true,
-            autoSkipPadding: 20,
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.1)',
-          },
-        },
-        y: {
-          type: 'linear',
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Response Time (ms)',
-            color: '#c9d1d9',
-          },
-          ticks: {
-            color: '#c9d1d9',
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.1)',
-          },
-        },
-      },
-      plugins: {
-        legend: {
-          labels: {
-            color: '#c9d1d9',
-          },
-        },
-        tooltip: {
-          callbacks: {
-            label: (context) => {
-              const label = context.dataset.label ?? '';
-              const value = context.parsed.y;
-              if (value === null) return label;
-              return `${label}: ${value.toFixed(0)}ms`;
-            },
-          },
-        },
-      },
-    },
-  };
-
-  responseTimeChartInstance = new Chart(canvasElement, config);
+  const config = createLineChartConfig({
+    datasets: [],
+    yTitle: 'Response Time (ms)',
+    tooltipFormatter: createTooltipFormatter((value) => `${value.toFixed(0)}ms`),
+  });
+  responseTimeChartInstance = createChartInstance(responseTimeChartInstance, canvasElement, config);
   return responseTimeChartInstance;
 }
 
 export function initMemoryChart(canvasElement: HTMLCanvasElement) {
-  const config: ChartConfiguration = {
+  const config = createLineChartConfig({
+    datasets: [],
+    yTitle: 'Memory Usage (MB)',
+    tooltipFormatter: createTooltipFormatter((value) => `${value.toFixed(0)} MB`),
+  });
+  memoryChartInstance = createChartInstance(memoryChartInstance, canvasElement, config);
+  return memoryChartInstance;
+}
+
+function createTorrentTooltipCallback() {
+  return (context: LineTooltipItem) => {
+    const meta = context as unknown as {
+      dataset?: TooltipDatasetMeta;
+      parsed?: TooltipParsedMeta;
+    };
+    const parsedY = typeof meta.parsed?.y === 'number' ? meta.parsed.y : undefined;
+    const datasetLabel = typeof meta.dataset?.label === 'string' ? meta.dataset.label : '';
+
+    if (parsedY === undefined) return datasetLabel;
+    const formatted = formatScaledRate(parsedY);
+    return `${datasetLabel}: ${formatted} ${currentRateScale.unit}`;
+  };
+}
+
+function createTorrentChartConfig(): LineChartConfig {
+  return {
     type: 'line',
     data: {
       datasets: [],
@@ -336,142 +270,66 @@ export function initMemoryChart(canvasElement: HTMLCanvasElement) {
         mode: 'index',
       },
       scales: {
-        x: {
-          type: 'time',
-          time: {
-            displayFormats: {
-              minute: 'HH:mm',
-              hour: 'HH:mm',
-              day: 'MMM d',
-            },
-          },
-          ticks: {
-            color: '#c9d1d9',
-            maxRotation: 0,
-            autoSkip: true,
-            autoSkipPadding: 20,
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.1)',
-          },
-        },
-        y: {
-          type: 'linear',
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Memory Usage (MB)',
-            color: '#c9d1d9',
-          },
-          ticks: {
-            color: '#c9d1d9',
-          },
-          grid: {
-            color: 'rgba(255, 255, 255, 0.1)',
-          },
-        },
+        x: createTimeScaleOptions(),
+        y: createLinearScaleOptions(`Rate (${currentRateScale.unit})`),
       },
       plugins: {
         legend: {
-          labels: {
-            color: '#c9d1d9',
-          },
+          display: false,
         },
         tooltip: {
           callbacks: {
-            label: (context) => {
-              const label = context.dataset.label ?? '';
-              const value = context.parsed.y;
-              if (value === null) return label;
-              return `${label}: ${value.toFixed(0)} MB`;
+            label: createTorrentTooltipCallback(),
+            beforeBody: (tooltipItems) => {
+              // Sort by value descending and take top 3
+              const sorted = [...tooltipItems].sort((a, b) => {
+                const aVal = typeof (a as { parsed?: { y?: number } }).parsed?.y === 'number'
+                  ? (a as { parsed: { y: number } }).parsed.y
+                  : 0;
+                const bVal = typeof (b as { parsed?: { y?: number } }).parsed?.y === 'number'
+                  ? (b as { parsed: { y: number } }).parsed.y
+                  : 0;
+                return bVal - aVal;
+              });
+
+              // Filter tooltipItems to only include top 3
+              const top3 = sorted.slice(0, 3);
+              const top3Indices = top3.map(item =>
+                typeof (item as { datasetIndex?: number }).datasetIndex === 'number'
+                  ? (item as { datasetIndex: number }).datasetIndex
+                  : -1
+              );
+
+              // Remove items that aren't in top 3
+              for (let i = tooltipItems.length - 1; i >= 0; i--) {
+                const item = tooltipItems[i];
+                const datasetIndex = typeof (item as { datasetIndex?: number }).datasetIndex === 'number'
+                  ? (item as { datasetIndex: number }).datasetIndex
+                  : -1;
+                if (!top3Indices.includes(datasetIndex)) {
+                  tooltipItems.splice(i, 1);
+                }
+              }
+
+              return [];
             },
           },
         },
       },
     },
   };
-
-  memoryChartInstance = new Chart(canvasElement, config);
-  return memoryChartInstance;
 }
 
-function aggregateData(data: Array<ChartDataPoint>, resolution: TimeResolution): Array<ChartDataPoint> {
-  if (resolution === '1h') {
-    // For 1 hour, use all data points (we have up to 3600)
-    return data;
-  }
+export function initTorrentDownloadChart(canvasElement: HTMLCanvasElement) {
+  const config = createTorrentChartConfig();
+  torrentDownloadChartInstance = createChartInstance(torrentDownloadChartInstance, canvasElement, config);
+  return torrentDownloadChartInstance;
+}
 
-  // Calculate bucket size in seconds
-  const bucketSize = resolution === '1d' ? 60 : resolution === '1w' ? 300 : 1800; // 1min, 5min, 30min
-  const now = Date.now();
-  const timeRange = resolution === '1d' ? 86400000 : resolution === '1w' ? 604800000 : 2592000000; // 1d, 1w, 1m in ms
-  const startTime = now - timeRange;
-
-  // Filter data to the time range
-  const filteredData = data.filter(point => point.timestamp >= startTime);
-
-  // Group into buckets and aggregate
-  const buckets = new Map<number, Array<ChartDataPoint>>();
-
-  for (const point of filteredData) {
-    const bucketKey = Math.floor((point.timestamp - startTime) / (bucketSize * 1000));
-    const existing = buckets.get(bucketKey);
-    if (existing !== undefined) {
-      existing.push(point);
-    } else {
-      buckets.set(bucketKey, [point]);
-    }
-  }
-
-  // Average each bucket
-  const aggregated: Array<ChartDataPoint> = [];
-  for (const points of buckets.values()) {
-    if (points.length === 0) continue;
-
-    // Aggregate response times
-    const allServices = new Set<string>();
-    for (const point of points) {
-      for (const service of Object.keys(point.responseTimes)) {
-        allServices.add(service);
-      }
-    }
-    const avgResponseTimes: Record<string, number> = {};
-    for (const service of allServices) {
-      const serviceTimes = points.map(p => p.responseTimes[service] ?? 0).filter(t => t > 0);
-      avgResponseTimes[service] = serviceTimes.length > 0
-        ? serviceTimes.reduce((sum, t) => sum + t, 0) / serviceTimes.length
-        : 0;
-    }
-
-    // Aggregate memory usage
-    const allContainers = new Set<string>();
-    for (const point of points) {
-      for (const container of Object.keys(point.memoryUsage)) {
-        allContainers.add(container);
-      }
-    }
-    const avgMemoryUsage: Record<string, number> = {};
-    for (const container of allContainers) {
-      const containerMemory = points.map(p => p.memoryUsage[container] ?? 0).filter(m => m > 0);
-      avgMemoryUsage[container] = containerMemory.length > 0
-        ? containerMemory.reduce((sum, m) => sum + m, 0) / containerMemory.length
-        : 0;
-    }
-
-    const avg = points.reduce((acc, p) => ({
-      timestamp: p.timestamp,
-      downloadRate: acc.downloadRate + p.downloadRate / points.length,
-      uploadRate: acc.uploadRate + p.uploadRate / points.length,
-      load1: acc.load1 + p.load1 / points.length,
-      load5: acc.load5 + p.load5 / points.length,
-      load15: acc.load15 + p.load15 / points.length,
-      responseTimes: avgResponseTimes,
-      memoryUsage: avgMemoryUsage,
-    }), { timestamp: points[0]?.timestamp ?? Date.now(), downloadRate: 0, uploadRate: 0, load1: 0, load5: 0, load15: 0, responseTimes: avgResponseTimes, memoryUsage: avgMemoryUsage });
-    aggregated.push(avg);
-  }
-
-  return aggregated.sort((a, b) => a.timestamp - b.timestamp);
+export function initTorrentUploadChart(canvasElement: HTMLCanvasElement) {
+  const config = createTorrentChartConfig();
+  torrentUploadChartInstance = createChartInstance(torrentUploadChartInstance, canvasElement, config);
+  return torrentUploadChartInstance;
 }
 
 export function setResolution(resolution: TimeResolution) {
@@ -481,38 +339,9 @@ export function setResolution(resolution: TimeResolution) {
 export function updateCharts(data: Array<ChartDataPoint>) {
   if (networkChartInstance === null || loadChartInstance === null || responseTimeChartInstance === null || memoryChartInstance === null) return;
 
-  const aggregated = aggregateData(data, currentResolution);
-
-  // Calculate time range for x-axis bounds
-  const now = Date.now();
-  const timeRange = currentResolution === '1h' ? 3600000 :
-                    currentResolution === '1d' ? 86400000 :
-                    currentResolution === '1w' ? 604800000 : 2592000000;
-  const minTime = now - timeRange;
-
-  // Convert data to Chart.js format with timestamps
-  const maxRateBytes = aggregated.reduce(
-    (max, point) => Math.max(max, point.downloadRate, point.uploadRate),
-    0
-  );
+  const prepared = prepareChartSeries(data, currentResolution);
   const previousScale = currentRateScale;
-  currentRateScale = selectRateScale(maxRateBytes);
-  const rateDivisor = currentRateScale.divisor;
-
-  const downloadData = aggregated.map((point) => ({
-    x: point.timestamp,
-    y: rateDivisor > 0 ? point.downloadRate / rateDivisor : 0,
-  }));
-
-  const uploadData = aggregated.map((point) => ({
-    x: point.timestamp,
-    y: rateDivisor > 0 ? point.uploadRate / rateDivisor : 0,
-  }));
-
-  const loadData = aggregated.map((point) => ({
-    x: point.timestamp,
-    y: point.load1, // 1-minute load average
-  }));
+  currentRateScale = prepared.rateScale;
 
   // Update network and load charts
   const downloadDataset = networkChartInstance.data.datasets[0];
@@ -520,20 +349,20 @@ export function updateCharts(data: Array<ChartDataPoint>) {
   const loadDataset = loadChartInstance.data.datasets[0];
 
   if (downloadDataset !== undefined && uploadDataset !== undefined && loadDataset !== undefined) {
-    downloadDataset.data = downloadData;
-    uploadDataset.data = uploadData;
+    downloadDataset.data = prepared.download;
+    uploadDataset.data = prepared.upload;
     downloadDataset.label = `Download (${currentRateScale.unit})`;
     uploadDataset.label = `Upload (${currentRateScale.unit})`;
-    loadDataset.data = loadData;
+    loadDataset.data = prepared.load;
 
     // Update x-axis bounds
     if (networkChartInstance.options.scales?.['x'] !== undefined) {
-      networkChartInstance.options.scales['x'].min = minTime;
-      networkChartInstance.options.scales['x'].max = now;
+      networkChartInstance.options.scales['x'].min = prepared.xBounds.min;
+      networkChartInstance.options.scales['x'].max = prepared.xBounds.max;
     }
     if (loadChartInstance.options.scales?.['x'] !== undefined) {
-      loadChartInstance.options.scales['x'].min = minTime;
-      loadChartInstance.options.scales['x'].max = now;
+      loadChartInstance.options.scales['x'].min = prepared.xBounds.min;
+      loadChartInstance.options.scales['x'].max = prepared.xBounds.max;
     }
 
     const yScale = networkChartInstance.options.scales?.['y'] as AxisWithOptionalTitle | undefined;
@@ -558,22 +387,12 @@ export function updateCharts(data: Array<ChartDataPoint>) {
   }
 
   // Update response time chart
-  const allServices = new Set<string>();
-  for (const point of aggregated) {
-    for (const service of Object.keys(point.responseTimes)) {
-      allServices.add(service);
-    }
-  }
-
   // Create datasets for each service
-  const responseTimeDatasets = Array.from(allServices).map(service => {
+  const responseTimeDatasets = prepared.services.map(service => {
     const color = serviceColors[service] ?? { border: 'rgb(100, 100, 100)', background: 'rgba(100, 100, 100, 0.2)' };
     return {
       label: service,
-      data: aggregated.map((point) => ({
-        x: point.timestamp,
-        y: point.responseTimes[service] ?? 0,
-      })),
+      data: prepared.responseTimes[service] ?? [],
       borderColor: color.border,
       backgroundColor: color.background,
       fill: false,
@@ -588,29 +407,19 @@ export function updateCharts(data: Array<ChartDataPoint>) {
 
   // Update x-axis bounds
   if (responseTimeChartInstance.options.scales?.['x'] !== undefined) {
-    responseTimeChartInstance.options.scales['x'].min = minTime;
-    responseTimeChartInstance.options.scales['x'].max = now;
+    responseTimeChartInstance.options.scales['x'].min = prepared.xBounds.min;
+    responseTimeChartInstance.options.scales['x'].max = prepared.xBounds.max;
   }
 
   responseTimeChartInstance.update('none');
 
   // Update memory chart
-  const allContainers = new Set<string>();
-  for (const point of aggregated) {
-    for (const container of Object.keys(point.memoryUsage)) {
-      allContainers.add(container);
-    }
-  }
-
   // Create datasets for each container
-  const memoryDatasets = Array.from(allContainers).map(container => {
+  const memoryDatasets = prepared.containers.map(container => {
     const color = containerColors[container] ?? { border: 'rgb(100, 100, 100)', background: 'rgba(100, 100, 100, 0.2)' };
     return {
       label: container,
-      data: aggregated.map((point) => ({
-        x: point.timestamp,
-        y: point.memoryUsage[container] ?? 0, // Memory in MB
-      })),
+      data: prepared.memoryUsage[container] ?? [], // Memory in MB
       borderColor: color.border,
       backgroundColor: color.background,
       fill: false,
@@ -625,9 +434,81 @@ export function updateCharts(data: Array<ChartDataPoint>) {
 
   // Update x-axis bounds
   if (memoryChartInstance.options.scales?.['x'] !== undefined) {
-    memoryChartInstance.options.scales['x'].min = minTime;
-    memoryChartInstance.options.scales['x'].max = now;
+    memoryChartInstance.options.scales['x'].min = prepared.xBounds.min;
+    memoryChartInstance.options.scales['x'].max = prepared.xBounds.max;
   }
 
   memoryChartInstance.update('none');
+
+  // Update torrent download chart
+  if (torrentDownloadChartInstance !== null) {
+    const downloadDatasets = prepared.torrents.map((torrent, index) => {
+      const color = torrentColors[index % torrentColors.length] ?? { border: 'rgb(100, 100, 100)', background: 'rgba(100, 100, 100, 0.15)' };
+      return {
+        label: torrent.name,
+        data: prepared.torrentDownloads[torrent.id] ?? [],
+        borderColor: color.border,
+        backgroundColor: color.background,
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 8,
+      };
+    });
+
+    torrentDownloadChartInstance.data.datasets = downloadDatasets;
+
+    if (torrentDownloadChartInstance.options.scales?.['x'] !== undefined) {
+      torrentDownloadChartInstance.options.scales['x'].min = prepared.xBounds.min;
+      torrentDownloadChartInstance.options.scales['x'].max = prepared.xBounds.max;
+    }
+
+    const downloadYScale = torrentDownloadChartInstance.options.scales?.['y'] as AxisWithOptionalTitle | undefined;
+    if (downloadYScale !== undefined) {
+      if (downloadYScale.title === undefined) {
+        downloadYScale.title = { display: true, text: currentRateScale.unit, color: '#c9d1d9' };
+      } else {
+        downloadYScale.title.text = currentRateScale.unit;
+      }
+    }
+
+    torrentDownloadChartInstance.update('none');
+  }
+
+  // Update torrent upload chart
+  if (torrentUploadChartInstance !== null) {
+    const uploadDatasets = prepared.torrents.map((torrent, index) => {
+      const color = torrentColors[index % torrentColors.length] ?? { border: 'rgb(100, 100, 100)', background: 'rgba(100, 100, 100, 0.15)' };
+      return {
+        label: torrent.name,
+        data: prepared.torrentUploads[torrent.id] ?? [],
+        borderColor: color.border,
+        backgroundColor: color.background,
+        fill: false,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 8,
+      };
+    });
+
+    torrentUploadChartInstance.data.datasets = uploadDatasets;
+
+    if (torrentUploadChartInstance.options.scales?.['x'] !== undefined) {
+      torrentUploadChartInstance.options.scales['x'].min = prepared.xBounds.min;
+      torrentUploadChartInstance.options.scales['x'].max = prepared.xBounds.max;
+    }
+
+    const uploadYScale = torrentUploadChartInstance.options.scales?.['y'] as AxisWithOptionalTitle | undefined;
+    if (uploadYScale !== undefined) {
+      if (uploadYScale.title === undefined) {
+        uploadYScale.title = { display: true, text: currentRateScale.unit, color: '#c9d1d9' };
+      } else {
+        uploadYScale.title.text = currentRateScale.unit;
+      }
+    }
+
+    torrentUploadChartInstance.update('none');
+  }
 }

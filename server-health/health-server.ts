@@ -10,6 +10,8 @@ import { discoverServices } from './lib/services';
 import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles, watchCrossSeedLog } from './lib/config';
 import { watchDockerEvents, watchGluetunPort, watchContainerStats, getAllContainerMemoryUsage, refreshContainerStats } from './lib/docker';
 import { getLoadAverage } from './lib/system';
+import { createChartStoreHelpers, type ChartDataPoint } from './lib/chart-store';
+import { createInitialHealthCache, applyHealthUpdate, type HealthCache, type ServiceProbeResult } from './lib/health-cache';
 import {
   probeGluetun,
   probeQbitEgress,
@@ -28,14 +30,7 @@ import {
   checkDiskUsage,
   checkImageAge,
   type GluetunProbeResult,
-  type QbitEgressProbeResult,
-  type SonarrProbeResult,
-  type ProwlarrProbeResult,
-  type BazarrProbeResult,
   type QbitProbeResult,
-  type FlareProbeResult,
-  type CrossSeedProbeResult,
-  type RecyclarrProbeResult,
   type CheckResult,
 } from './lib/probes';
 
@@ -44,64 +39,32 @@ const app = express();
 const PORT = process.env['PORT'] ?? '3000';
 const HEALTH_INTERVAL_MS = parseInt(process.env['HEALTH_INTERVAL_MS'] ?? '10000', 10);
 const USE_VPN = process.env['USE_VPN'] === 'true';
+const ENABLE_TORRENT_RATES = process.env['HEALTH_ENABLE_TORRENT_RATES'] === 'true';
 const GIT_REF = resolveGitRef();
 const CONFIG_ROOT = process.env['CONFIG_ROOT'] ?? '/config';
 const HEALTH_DATA_DIR = process.env['HEALTH_DATA_DIR'] ?? join(CONFIG_ROOT, 'health-server');
 const CHART_DATA_FILE = join(HEALTH_DATA_DIR, 'chart-data.json');
+const DEFAULT_CHART_RETENTION_DAYS = 30;
+const requestedRetentionDays = Number(process.env['CHART_RETENTION_DAYS']);
+const CHART_RETENTION_DAYS =
+  Number.isFinite(requestedRetentionDays) && requestedRetentionDays > 0
+    ? requestedRetentionDays
+    : DEFAULT_CHART_RETENTION_DAYS;
+const CHART_RETENTION_MS = CHART_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const chartStoreHelpers = createChartStoreHelpers(CHART_RETENTION_MS);
 
 // WebSocket clients
 const wsClients = new Set<WebSocket>();
 
-type ServiceProbeResult =
-  | SonarrProbeResult
-   
-  | ProwlarrProbeResult
-  | BazarrProbeResult
-  | QbitProbeResult
-  | FlareProbeResult
-  | CrossSeedProbeResult
-  | RecyclarrProbeResult;
-
-interface ChartDataPoint {
-  timestamp: number;
-  downloadRate: number;
-  uploadRate: number;
-  load1: number;
-  load5: number;
-  load15: number;
-  responseTimes: Record<string, number>; // service name -> response time in ms
-  memoryUsage: Record<string, number>; // container name -> memory usage in MB
-}
-
-interface HealthCache {
-  vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null };
-  qbitEgress: QbitEgressProbeResult | null;
-  services: Array<ServiceProbeResult>;
-  checks: Array<CheckResult>;
-  nets: Array<never>;
-  chartData: Array<ChartDataPoint>;
-  updatedAt: string | null;
-  updating: boolean;
-  error: string | null;
-  gitRef: string;
-}
-
-let healthCache: HealthCache = {
-  vpn: USE_VPN ? { name: 'VPN', ok: false, running: false, healthy: null } : { name: 'VPN', ok: false, running: false, healthy: null },
-  qbitEgress: USE_VPN
-    ? { name: 'qBittorrent egress', container: 'qbittorrent', ok: false, vpnEgress: '' }
-    : { name: 'qBittorrent egress', container: 'qbittorrent', ok: true, vpnEgress: 'VPN disabled' },
-  services: [],
-  checks: USE_VPN ? [] : [{ name: 'VPN status', ok: true, detail: 'disabled (no VPN configured)' }],
-  nets: [],
-  chartData: [],
-  updatedAt: null,
-  updating: true,
-  error: 'initializing',
+let healthCache: HealthCache = createInitialHealthCache({
+  useVpn: USE_VPN,
   gitRef: GIT_REF,
-};
+  chartData: chartStoreHelpers.createEmptyStore(),
+  torrentRatesEnabled: ENABLE_TORRENT_RATES,
+});
 
-const containersToWatch = ['qbittorrent', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'cross-seed', 'flaresolverr'] as const;
+const containersToWatch = ['qbittorrent', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'cross-seed', 'flaresolverr', 'health-server'] as const;
+const vpnContainersToWatch = ['gluetun', 'pf-sync'] as const;
 
 function isFullGluetunResult(vpn: HealthCache['vpn']): vpn is GluetunProbeResult {
   return typeof vpn === 'object' && 'forwardedPort' in vpn && 'pfExpected' in vpn;
@@ -109,58 +72,14 @@ function isFullGluetunResult(vpn: HealthCache['vpn']): vpn is GluetunProbeResult
 
 app.get('/api/health', (_req: Request, res: Response) => {
   // Send health data without chart data to keep response small
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { chartData, ...healthWithoutCharts } = healthCache;
+  const { chartData: _chartData, ...healthWithoutCharts } = healthCache;
   res.json(healthWithoutCharts);
 });
 
-// Separate endpoint for chart data with compact format
+// Separate endpoint for chart data with compact multi-resolution format
 app.get('/api/charts', (_req: Request, res: Response) => {
-  const data = healthCache.chartData;
-  if (data.length === 0) {
-    res.json({ dataPoints: 0, services: [], containers: [], timestamps: [], downloadRate: [], uploadRate: [], load1: [], responseTimes: {}, memoryUsage: {} });
-    return;
-  }
-
-  // Quantize response times to nearest 10ms to reduce size
-  const allServices = new Set<string>();
-  for (const point of data) {
-    for (const service of Object.keys(point.responseTimes)) {
-      allServices.add(service);
-    }
-  }
-
-  const compactResponseTimes: Record<string, Array<number>> = {};
-  for (const service of allServices) {
-    compactResponseTimes[service] = data.map(p => Math.round((p.responseTimes[service] ?? 0) / 10)); // Quantize to 10ms
-  }
-
-  // Collect all containers with memory data
-  const allContainers = new Set<string>();
-  for (const point of data) {
-    for (const container of Object.keys(point.memoryUsage)) {
-      allContainers.add(container);
-    }
-  }
-
-  const compactMemoryUsage: Record<string, Array<number>> = {};
-  for (const container of allContainers) {
-    compactMemoryUsage[container] = data.map(p => p.memoryUsage[container] ?? 0); // Memory in MB
-  }
-
-  res.json({
-    dataPoints: data.length,
-    services: Array.from(allServices),
-    containers: Array.from(allContainers),
-    // Send actual timestamps from stored data
-    timestamps: data.map(p => p.timestamp),
-    // Arrays are more compact than objects
-    downloadRate: data.map(p => Math.round(p.downloadRate)),
-    uploadRate: data.map(p => Math.round(p.uploadRate)),
-    load1: data.map(p => Math.round(p.load1 * 100) / 100), // 2 decimal places
-    responseTimes: compactResponseTimes, // Quantized to 10ms buckets
-    memoryUsage: compactMemoryUsage, // Memory in MB
-  });
+  const payload = chartStoreHelpers.buildPayload(healthCache.chartData);
+  res.json(payload);
 });
 
 function resolveGitRef() {
@@ -188,20 +107,25 @@ async function saveChartData() {
 async function loadChartData() {
   try {
     const raw = await fs.readFile(CHART_DATA_FILE, 'utf-8');
-    const data = JSON.parse(raw) as Array<ChartDataPoint>;
+    const data = JSON.parse(raw) as unknown;
 
-    // Validate and filter data
-    const now = Date.now();
-    const MAX_AGE_MS = 3600000; // Keep last 1 hour
-    const validData = data.filter(point =>
-      typeof point.timestamp === 'number' &&
-      typeof point.downloadRate === 'number' &&
-      typeof point.uploadRate === 'number' &&
-      now - point.timestamp < MAX_AGE_MS
-    );
+    if (Array.isArray(data)) {
+      healthCache.chartData = chartStoreHelpers.convertLegacyData(data);
+      logger.info({ dataPoints: { legacy: data.length } }, 'Loaded legacy chart data from disk');
+      return;
+    }
 
-    healthCache.chartData = validData;
-    logger.info({ dataPoints: validData.length }, 'Loaded chart data from disk');
+    if (typeof data === 'object' && data !== null) {
+      healthCache.chartData = chartStoreHelpers.sanitizeStore(data as Record<string, unknown>);
+      const counts = Object.fromEntries(
+        Object.entries(healthCache.chartData).map(([resolution, buckets]) => [resolution, buckets.length])
+      );
+      logger.info({ dataPoints: counts }, 'Loaded chart data from disk');
+      return;
+    }
+
+    logger.warn('Chart data file had unexpected format, starting fresh');
+    healthCache.chartData = chartStoreHelpers.createEmptyStore();
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === 'ENOENT') {
@@ -222,21 +146,6 @@ function broadcastToClients(message: unknown) {
 }
 
 function publish(partial: Partial<HealthCache>) {
-  // Check if data actually changed before broadcasting
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { chartData, updatedAt, updating, error, gitRef, ...newData } = partial;
-
-  // Compare new data with current cache (deep comparison)
-  let hasChanges = false;
-  const changedKeys: Array<string> = [];
-  for (const [key, value] of Object.entries(newData)) {
-    const currentValue = healthCache[key as keyof HealthCache];
-    if (JSON.stringify(currentValue) !== JSON.stringify(value)) {
-      hasChanges = true;
-      changedKeys.push(key);
-    }
-  }
-
   // Log meaningful state changes for services
   if (partial.services !== undefined) {
     const oldServices = healthCache.services;
@@ -284,15 +193,8 @@ function publish(partial: Partial<HealthCache>) {
     }
   }
 
-  // Update local cache
-  healthCache = {
-    ...healthCache,
-    ...partial,
-    updatedAt: new Date().toISOString(),
-    updating: false,
-    error: partial.error ?? null,
-    gitRef: GIT_REF,
-  };
+  const { cache: updatedCache, hasChanges } = applyHealthUpdate(healthCache, { ...partial, gitRef: GIT_REF });
+  healthCache = updatedCache;
 
   // Only broadcast if data actually changed
   if (hasChanges && wsClients.size > 0) {
@@ -374,21 +276,27 @@ async function updateServicesSection() {
     timedProbe('Radarr', probeRadarr(urls['radarr'], apiKeys['radarr'] ?? null)),
     timedProbe('Prowlarr', probeProwlarr(urls['prowlarr'], apiKeys['prowlarr'] ?? null)),
     timedProbe('Bazarr', probeBazarr(urls['bazarr'], apiKeys['bazarr'] ?? null)),
-    timedProbe('qBittorrent', probeQbit(qbitUrl, qbitAuth)),
+    timedProbe(
+      'qBittorrent',
+      probeQbit(qbitUrl, qbitAuth, {
+        includeTorrentRates: ENABLE_TORRENT_RATES,
+      })
+    ),
     timedProbe('Cross-Seed', probeCrossSeed(urls['cross-seed'])),
     timedProbe('FlareSolverr', probeFlare(urls['flaresolverr'])),
     timedProbe('Recyclarr', probeRecyclarr()),
   ];
-  const services = await Promise.all(probes);
+  const rawServices = await Promise.all(probes);
 
   // Track upload/download rates and load average for charts
-  const qbitService = services.find(s => s.name === 'qBittorrent') as QbitProbeResult | undefined;
+  const qbitService = rawServices.find(s => s.name === 'qBittorrent') as (QbitProbeResult & { torrents?: Array<{ id: string; name: string; downloadRate: number; uploadRate: number }> }) | undefined;
   const downloadRate = qbitService?.dl ?? 0;
   const uploadRate = qbitService?.up ?? 0;
+  const torrentRatesRaw = ENABLE_TORRENT_RATES ? (qbitService?.torrents ?? []) : [];
   const loadAvg = await getLoadAverage();
 
   // Ensure we have fresh Docker stats for memory usage
-  const memoryTargets = [...containersToWatch, ...(USE_VPN ? ['gluetun'] : [])];
+  const memoryTargets = [...containersToWatch, ...(USE_VPN ? vpnContainersToWatch : [])];
   await Promise.all(memoryTargets.map(container => refreshContainerStats(container)));
 
   // Collect memory usage from all watched containers
@@ -396,6 +304,17 @@ async function updateServicesSection() {
   const memoryUsage: Record<string, number> = {};
   for (const [containerName, usage] of Object.entries(allMemoryUsage)) {
     memoryUsage[containerName] = Math.round(usage.usedBytes / 1024 / 1024); // Convert to MB
+  }
+
+  const torrentRates: ChartDataPoint['torrentRates'] = {};
+  for (const torrent of torrentRatesRaw) {
+    if (torrent.id.length > 0) {
+      torrentRates[torrent.id] = {
+        name: torrent.name,
+        downloadRate: torrent.downloadRate,
+        uploadRate: torrent.uploadRate,
+      };
+    }
   }
 
   const newDataPoint: ChartDataPoint = {
@@ -407,22 +326,23 @@ async function updateServicesSection() {
     load15: loadAvg.load15,
     responseTimes,
     memoryUsage,
+    torrentRates,
   };
 
-  const MAX_CHART_POINTS = 360; // Keep last 360 data points (1 hour at 10s intervals)
-  const updatedChartData = [...healthCache.chartData, newDataPoint];
-  if (updatedChartData.length > MAX_CHART_POINTS) {
-    updatedChartData.shift(); // Remove oldest point
-  }
-
-  // Update local cache with full chart data
-  healthCache.chartData = updatedChartData;
+  chartStoreHelpers.appendSample(healthCache.chartData, newDataPoint);
 
   // Save to disk (async, don't wait for it)
   void saveChartData();
 
   // Broadcast services update and new chart point separately
-  publish({ services });
+  const sanitizedServices: Array<ServiceProbeResult> = rawServices.map(service => {
+    if (service.name === 'qBittorrent' && Object.prototype.hasOwnProperty.call(service, 'torrents')) {
+      const { torrents: _ignored, ...rest } = service as QbitProbeResult & { torrents?: unknown };
+      return rest as ServiceProbeResult;
+    }
+    return service as ServiceProbeResult;
+  });
+  publish({ services: sanitizedServices });
 
   // Only broadcast chart point if there are connected clients
   if (wsClients.size > 0) {
@@ -437,64 +357,47 @@ async function updateChecksSection() {
   const urls = await discoverServices();
   const apiKeys = await loadArrApiKeys();
   const vpn = healthCache.vpn;
-  const qbitEgress = healthCache.qbitEgress;
   const qbitService = healthCache.services.find(s => s.name === 'qBittorrent') as QbitProbeResult | undefined;
   const checks: Array<CheckResult> = [];
+  let qbitIngress: HealthCache['qbitIngress'] = null;
+  let pfSyncInfo: CheckResult | null = null;
 
   if (USE_VPN && 'running' in vpn) {
     const gluetunVpn = isFullGluetunResult(vpn) ? vpn : undefined;
     const forwardedPort = gluetunVpn?.forwardedPort ?? '';
-    const pfExpected = gluetunVpn?.pfExpected ?? false;
-    const vpnEgressValue = gluetunVpn?.vpnEgress ?? '';
-    const uiHostPort = gluetunVpn?.uiHostPort ?? '';
-    checks.push(
-      { name: 'gluetun running', ok: vpn.running, detail: vpn.healthy !== null ? `health=${vpn.healthy}` : '' },
-      { name: 'gluetun healthy', ok: vpn.healthy === 'healthy', detail: `uiHostPort=${uiHostPort.length > 0 ? uiHostPort : ''}` },
-      {
-        name: 'gluetun forwarded port',
-        ok: pfExpected ? /^\d+$/.test(forwardedPort) : true,
-        detail: pfExpected ? (forwardedPort.length > 0 ? forwardedPort : 'pending') : 'disabled',
-      },
-      {
-        name: 'qbittorrent egress via VPN',
-        ok: qbitEgress?.vpnEgress !== undefined && qbitEgress.vpnEgress.length > 0,
-        detail: qbitEgress?.vpnEgress !== undefined && qbitEgress.vpnEgress.length > 0 ? qbitEgress.vpnEgress : 'pending',
-      },
-      { name: 'gluetun egress IP', ok: vpnEgressValue.length > 0, detail: vpnEgressValue.length > 0 ? vpnEgressValue : '' }
-    );
-
     const vpnPort = parseInt(forwardedPort.length > 0 ? forwardedPort : '', 10);
-    let okPort = false;
-    let detail = '';
-    if (!Number.isInteger(vpnPort)) {
-      detail = `forwarded port invalid (${forwardedPort.length > 0 ? forwardedPort : 'missing'})`;
-    } else if (qbitService?.listenPort === null || qbitService?.listenPort === undefined) {
-      detail = 'qBittorrent listen port unavailable';
-    } else {
-      okPort = qbitService.listenPort === vpnPort;
-      detail = `vpn=${String(vpnPort)}, qbit=${String(qbitService.listenPort)}`;
-    }
-    checks.push({ name: 'qbittorrent port matches VPN forwarded port', ok: okPort, detail });
+    qbitIngress = {
+      hostPort: Number.isNaN(vpnPort) ? '' : String(vpnPort),
+      listenPort: qbitService?.listenPort ?? null,
+    };
   }
 
   if (!USE_VPN) {
     checks.push({ name: 'VPN status', ok: true, detail: 'disabled (no VPN configured)' });
+    if (qbitService !== undefined) {
+      qbitIngress = {
+        hostPort: '',
+        listenPort: qbitService.listenPort ?? null,
+      };
+    }
   }
 
-  const [integrationChecks, systemChecks] = await Promise.all([
+  const [integrationChecks, pfSyncResult, systemChecks] = await Promise.all([
     Promise.all([
       checkSonarrDownloadClients(urls['sonarr'], apiKeys['sonarr'] ?? null),
       checkRadarrDownloadClients(urls['radarr'], apiKeys['radarr'] ?? null),
       checkProwlarrIndexers(urls['prowlarr'], apiKeys['prowlarr'] ?? null),
     ]),
+    USE_VPN ? checkPfSyncHeartbeat() : Promise.resolve({ name: 'pf-sync heartbeat', ok: true, detail: 'vpn disabled' }),
     Promise.all([
-      USE_VPN ? checkPfSyncHeartbeat() : Promise.resolve({ name: 'pf-sync heartbeat', ok: true, detail: 'vpn disabled' }),
       checkDiskUsage(),
       checkImageAge(),
     ]),
   ]);
 
-  publish({ checks: [...checks, ...integrationChecks, ...systemChecks] });
+  pfSyncInfo = pfSyncResult;
+
+  publish({ checks: [...checks, ...integrationChecks, ...systemChecks], qbitIngress, pfSync: pfSyncInfo });
 }
 
 // Load persisted chart data from disk
@@ -516,7 +419,9 @@ for (const container of containersToWatch) {
 
 // Also watch gluetun if VPN is enabled
 if (USE_VPN) {
-  void watchContainerStats('gluetun');
+  for (const container of vpnContainersToWatch) {
+    void watchContainerStats(container);
+  }
   void watchGluetunPort();
 }
 
@@ -531,7 +436,7 @@ app.use(express.static(join(__dirname, '..', 'client')));
 const server = app.listen(PORT, () => {
   logger.info({
     port: PORT,
-    containers: containersToWatch.length,
+    containers: containersToWatch.length + (USE_VPN ? vpnContainersToWatch.length : 0),
     vpnEnabled: USE_VPN,
     checkIntervalSeconds: HEALTH_INTERVAL_MS / 1000,
     gitRef: GIT_REF.length > 0 ? GIT_REF : 'unknown',

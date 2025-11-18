@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderSummary, renderServiceCard, renderCheckCard, renderVpnCard } from '../components';
-import type { HealthData, ServiceProbeResult, CheckResult, GluetunProbeResult, QbitEgressProbeResult } from '../types';
+import type { HealthData, ServiceProbeResult, CheckResult, GluetunProbeResult, QbitEgressProbeResult, QbitIngressInfo } from '../types';
 
 describe('Component Rendering', () => {
   describe('renderSummary', () => {
@@ -8,6 +8,8 @@ describe('Component Rendering', () => {
       const data: HealthData = {
         vpn: { name: 'VPN', ok: false, running: false, healthy: null },
         qbitEgress: { name: 'qBittorrent egress', container: 'qbittorrent', ok: true, vpnEgress: '' },
+        qbitIngress: null,
+        pfSync: null,
         services: [],
         checks: [
           { name: 'Check 1', ok: true, detail: '' },
@@ -19,6 +21,7 @@ describe('Component Rendering', () => {
         updating: false,
         error: null,
         gitRef: '',
+        torrentRatesEnabled: false,
       };
 
       const html = renderSummary(data);
@@ -31,6 +34,8 @@ describe('Component Rendering', () => {
       const data: HealthData = {
         vpn: { name: 'VPN', ok: false, running: false, healthy: null },
         qbitEgress: { name: 'qBittorrent egress', container: 'qbittorrent', ok: true, vpnEgress: '' },
+        qbitIngress: null,
+        pfSync: null,
         services: [],
         checks: [
           { name: 'Check 1', ok: true, detail: '' },
@@ -41,6 +46,7 @@ describe('Component Rendering', () => {
         updating: false,
         error: null,
         gitRef: '',
+        torrentRatesEnabled: false,
       };
 
       const html = renderSummary(data);
@@ -132,6 +138,23 @@ describe('Component Rendering', () => {
       expect(html).toContain('Indexers: 15');
     });
 
+    it('should include integration check tags when provided', () => {
+      const service: ServiceProbeResult = {
+        name: 'Sonarr',
+        ok: true,
+      };
+      const checks: Array<CheckResult> = [
+        { name: 'Sonarr download clients', ok: true, detail: 'enabled: qBittorrent' },
+        { name: 'Custom check', ok: false, detail: 'needs auth' },
+      ];
+
+      const html = renderServiceCard(service, checks);
+
+      expect(html).toContain('download clients: qBittorrent');
+      expect(html).toContain('Custom check: needs auth');
+      expect(html).toContain('needs auth');
+    });
+
     it('should escape HTML in service details', () => {
       const service: ServiceProbeResult = {
         name: 'Test<script>alert("xss")</script>',
@@ -204,7 +227,6 @@ describe('Component Rendering', () => {
         vpnEgress: '198.51.100.42',
         forwardedPort: '12345',
         pfExpected: true,
-        uiHostPort: '8080',
       };
 
       const qbitEgress: QbitEgressProbeResult = {
@@ -214,13 +236,15 @@ describe('Component Rendering', () => {
         vpnEgress: '198.51.100.42',
       };
 
-      const html = renderVpnCard(vpn, qbitEgress);
+      const ingress: QbitIngressInfo = { hostPort: '12345', listenPort: 8080 };
+      const pfSync: CheckResult = { name: 'pf-sync heartbeat', ok: true, detail: 'active (recent sync detected)' };
+      const html = renderVpnCard(vpn, qbitEgress, ingress, pfSync);
 
       expect(html).toContain('HEALTHY');
       expect(html).toContain('Running: Yes');
       expect(html).toContain('198.51.100.42');
-      expect(html).toContain('12345');
-      expect(html).toContain('8080');
+      expect(html).toContain('Host Port: 12345');
+      expect(html).toContain('qBittorrent Port: 8080');
     });
 
     it('should handle VPN not running', () => {
@@ -233,7 +257,6 @@ describe('Component Rendering', () => {
         vpnEgress: '',
         forwardedPort: '',
         pfExpected: false,
-        uiHostPort: '',
       };
 
       const qbitEgress: QbitEgressProbeResult = {
@@ -243,7 +266,7 @@ describe('Component Rendering', () => {
         vpnEgress: '',
       };
 
-      const html = renderVpnCard(vpn, qbitEgress);
+      const html = renderVpnCard(vpn, qbitEgress, null, null);
 
       expect(html).toContain('Running: No');
       expect(html).toContain('status fail');

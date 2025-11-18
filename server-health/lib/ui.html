@@ -156,20 +156,29 @@
       return `<div class="badge">${okCount} / ${total} checks passing</div>`;
     }
 
-    function renderVpnCard(vpn, qbitEgress) {
+    function renderVpnCard(vpn, qbitEgress, qbitIngress, pfSync) {
       const v = vpn || {};
       const q = qbitEgress || {};
+      const ingress = qbitIngress || null;
+      const vpnStatus = typeof v.healthy === 'string' && v.healthy.length > 0 ? v.healthy.toUpperCase() : 'UNKNOWN';
+      const vpnRunning = v.running === true ? 'Yes' : 'No';
+      const vpnEgress = typeof v.vpnEgress === 'string' && v.vpnEgress.length > 0 ? v.vpnEgress : 'Unknown';
+
+      const hostPort = typeof ingress?.hostPort === 'string' ? ingress.hostPort : '';
+      const listenPort = ingress?.listenPort ?? null;
+      const ingressOk = hostPort.length > 0 && typeof listenPort === 'number';
+      const hostDisplay = hostPort.length > 0 ? hostPort : 'pending';
+      const listenDisplay = listenPort !== null ? listenPort : 'Unknown';
+      const pfDetail = typeof pfSync?.detail === 'string' && pfSync.detail.length > 0 ? pfSync.detail : (pfSync ? (pfSync.ok ? 'OK' : 'Requires attention') : '');
 
       return `
         <div class="card">
           <div class="status ${v.ok ? 'ok' : 'fail'}">
-            ${(v.healthy || 'unknown').toUpperCase()}
+            ${vpnStatus}
           </div>
           <div><strong>Gluetun VPN</strong></div>
-          <div class="tag">Running: ${v.running ? 'Yes' : 'No'}</div>
-          <div class="tag">Egress IP: ${v.vpnEgress || 'Unknown'}</div>
-          <div class="tag">Forwarded Port: ${v.forwardedPort || 'None'}</div>
-          ${v.uiHostPort ? `<div class="tag">WebUI Port: ${v.uiHostPort}</div>` : ''}
+          <div class="tag">Running: ${vpnRunning}</div>
+          <div class="tag">Egress IP: ${vpnEgress}</div>
         </div>
         <div class="card">
           <div class="status ${q.ok ? 'ok' : 'fail'}">
@@ -178,10 +187,23 @@
           <div><strong>qBittorrent Egress</strong></div>
           <div class="tag">Egress IP: ${q.vpnEgress || 'Unknown'}</div>
         </div>
+        ${ingress ? `
+        <div class="card">
+          <div class="status ${ingressOk ? 'ok' : 'fail'}">Ingress</div>
+          <div><strong>qBittorrent Ingress</strong></div>
+          <div class="tag">Host Port: ${hostDisplay}</div>
+          <div class="tag">qBittorrent Port: ${listenDisplay}</div>
+        </div>` : ''}
+        ${pfSync ? `
+        <div class="card">
+          <div class="status ${pfSync.ok ? 'ok' : 'fail'}">pf-sync</div>
+          <div><strong>pf-sync heartbeat</strong></div>
+          <div class="tag">${escapeHtml(pfText)}</div>
+        </div>` : ''}
       `;
     }
 
-    function renderServiceCard(service) {
+    function renderServiceCard(service, serviceChecks = []) {
       const ok = service.ok === true;
       const extras = [];
 
@@ -198,6 +220,13 @@
       // Add detail field if present (e.g., error count for recyclarr)
       if (service.detail) extras.push(service.detail);
 
+      const checkTags = serviceChecks.map(check => {
+        const label = (check.name || '').replace(service.name || '', '').trim() || check.name;
+        const rawDetail = check.detail && check.detail.length > 0 ? check.detail : (check.ok ? 'OK' : 'Requires attention');
+        const detail = rawDetail.replace(/^enabled:\s*/i, '');
+        return `<div class="tag">${escapeHtml((label || '') + ': ' + detail)}</div>`;
+      }).join('');
+
       return `
         <div class="card" style="${!ok ? 'border-color: #f85149;' : ''}">
           <div class="status ${ok ? 'ok' : 'fail'}">
@@ -209,6 +238,7 @@
           </div>` : ''}
           ${extras.length > 0 ? `<div class="tag">${extras.join(' • ')}</div>` : ''}
           ${service.reason ? `<div class="tag" style="color: #f85149;">Reason: ${escapeHtml(service.reason)}</div>` : ''}
+          ${checkTags}
         </div>
       `;
     }
@@ -227,6 +257,12 @@
     }
 
     // Main load function
+    const SERVICE_CHECK_MAP = {
+      'Sonarr': ['Sonarr download clients'],
+      'Radarr': ['Radarr download clients'],
+      'Prowlarr': ['Prowlarr indexers'],
+    };
+
     async function loadHealth() {
       try {
         const response = await fetch('/api/health');
@@ -235,8 +271,28 @@
         // Check if VPN is enabled
         const vpnEnabled = data.vpn && data.vpn.running !== false;
 
+        const serviceCheckGroups = {};
+        const remainingChecks = [];
+        (data.checks || []).forEach((check) => {
+          let matchedService = null;
+          Object.keys(SERVICE_CHECK_MAP).forEach(serviceName => {
+            if (SERVICE_CHECK_MAP[serviceName].includes(check.name)) {
+              matchedService = serviceName;
+            }
+          });
+          if (matchedService) {
+            if (!serviceCheckGroups[matchedService]) {
+              serviceCheckGroups[matchedService] = [];
+            }
+            serviceCheckGroups[matchedService].push(check);
+          } else {
+            remainingChecks.push(check);
+          }
+        });
+
         // Update summary
-        document.getElementById('summary').innerHTML = renderSummary(data);
+        const summaryData = Object.assign({}, data, { checks: remainingChecks });
+        document.getElementById('summary').innerHTML = renderSummary(summaryData);
 
         // Update VPN section - hide if VPN is disabled
         const vpnSection = document.querySelector('h2:nth-of-type(1)');
@@ -244,21 +300,21 @@
         if (vpnEnabled) {
           vpnSection.style.display = 'block';
           vpnDiv.style.display = 'grid';
-          vpnDiv.innerHTML = renderVpnCard(data.vpn, data.qbitEgress);
+          vpnDiv.innerHTML = renderVpnCard(data.vpn, data.qbitEgress, data.qbitIngress || null, data.pfSync || null);
         } else {
           vpnSection.style.display = 'none';
           vpnDiv.style.display = 'none';
         }
 
         // Update services section
-        const services = (data.services || []).map(renderServiceCard).join('');
+        const services = (data.services || []).map(service => renderServiceCard(service, serviceCheckGroups[service.name] || [])).join('');
         document.getElementById('services').innerHTML = services ||
           '<div class="empty">No services found</div>';
 
         // Update checks section (always visible if we have checks)
         const checksSection = document.querySelector('h2:nth-of-type(3)');
         const checksDiv = document.getElementById('checks');
-        const checks = (data.checks || []).map(renderCheckCard).join('');
+        const checks = remainingChecks.map(renderCheckCard).join('');
         checksSection.style.display = 'block';
         checksDiv.style.display = 'grid';
         checksDiv.innerHTML = checks || '<div class="empty">No checks configured</div>';

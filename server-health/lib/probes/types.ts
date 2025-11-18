@@ -36,6 +36,13 @@ export interface ProwlarrProbeResult extends BaseProbeResult {
  */
 export type BazarrProbeResult = BaseProbeResult;
 
+export interface QbitTorrentRate {
+  id: string;
+  name: string;
+  downloadRate: number;
+  uploadRate: number;
+}
+
 /**
  * Probe result for qBittorrent
  */
@@ -44,6 +51,7 @@ export interface QbitProbeResult extends BaseProbeResult {
   up?: number | null;
   total?: number | null;
   listenPort?: number | null;
+  torrents?: Array<QbitTorrentRate>;
 }
 
 /**
@@ -73,7 +81,6 @@ export interface GluetunProbeResult {
   vpnEgress: string;
   forwardedPort: string;
   pfExpected: boolean;
-  uiHostPort: string;
 }
 
 /**
