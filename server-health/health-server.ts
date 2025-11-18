@@ -61,7 +61,8 @@ let healthCache: HealthCache = createInitialHealthCache({
   chartData: chartStoreHelpers.createEmptyStore(),
 });
 
-const containersToWatch = ['qbittorrent', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'cross-seed', 'flaresolverr'] as const;
+const containersToWatch = ['qbittorrent', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'cross-seed', 'flaresolverr', 'health-server'] as const;
+const vpnContainersToWatch = ['gluetun', 'pf-sync'] as const;
 
 function isFullGluetunResult(vpn: HealthCache['vpn']): vpn is GluetunProbeResult {
   return typeof vpn === 'object' && 'forwardedPort' in vpn && 'pfExpected' in vpn;
@@ -287,7 +288,7 @@ async function updateServicesSection() {
   const loadAvg = await getLoadAverage();
 
   // Ensure we have fresh Docker stats for memory usage
-  const memoryTargets = [...containersToWatch, ...(USE_VPN ? ['gluetun'] : [])];
+  const memoryTargets = [...containersToWatch, ...(USE_VPN ? vpnContainersToWatch : [])];
   await Promise.all(memoryTargets.map(container => refreshContainerStats(container)));
 
   // Collect memory usage from all watched containers
@@ -391,7 +392,9 @@ for (const container of containersToWatch) {
 
 // Also watch gluetun if VPN is enabled
 if (USE_VPN) {
-  void watchContainerStats('gluetun');
+  for (const container of vpnContainersToWatch) {
+    void watchContainerStats(container);
+  }
   void watchGluetunPort();
 }
 
@@ -406,7 +409,7 @@ app.use(express.static(join(__dirname, '..', 'client')));
 const server = app.listen(PORT, () => {
   logger.info({
     port: PORT,
-    containers: containersToWatch.length,
+    containers: containersToWatch.length + (USE_VPN ? vpnContainersToWatch.length : 0),
     vpnEnabled: USE_VPN,
     checkIntervalSeconds: HEALTH_INTERVAL_MS / 1000,
     gitRef: GIT_REF.length > 0 ? GIT_REF : 'unknown',
