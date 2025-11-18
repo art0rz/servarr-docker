@@ -56,6 +56,8 @@ export interface ChartDataPoint {
   memoryUsage: Record<string, number>; // container name -> memory usage in MB
 }
 
+export type TimeResolution = '1h' | '1d' | '1w' | '1m';
+
 export interface HealthData {
   vpn: GluetunProbeResult | { name: string; ok: boolean; running: boolean; healthy: null };
   qbitEgress: QbitEgressProbeResult;
@@ -70,14 +72,20 @@ export interface HealthData {
   gitRef: string;
 }
 
-export interface CompactChartData {
+export interface CompactChartSeries {
   dataPoints: number;
-  services: Array<string>;
-  containers: Array<string>;
   timestamps: Array<number>;
   downloadRate: Array<number>;
   uploadRate: Array<number>;
   load1: Array<number>;
   responseTimes: Record<string, Array<number>>; // Quantized to 10ms
   memoryUsage: Record<string, Array<number>>; // Memory in MB
+  samples: Array<number>; // Number of raw samples aggregated into each bucket
+}
+
+export interface CompactChartData {
+  services: Array<string>;
+  containers: Array<string>;
+  retentionMs: number; // Data retention window in milliseconds
+  series: Partial<Record<TimeResolution, CompactChartSeries>>;
 }

@@ -175,24 +175,34 @@ import type { CompactChartData } from '../types';
 describe('decompressChartData', () => {
   it('should decompress compact chart data', () => {
     const compact: CompactChartData = {
-      startTime: 1700000000000,
-      interval: 1000,
-      dataPoints: 3,
+      retentionMs: 30 * 24 * 60 * 60 * 1000,
       services: ['Sonarr', 'Radarr'],
-      downloadRate: [1048576, 2097152, 1572864],
-      uploadRate: [524288, 1048576, 786432],
-      load1: [0.5, 0.75, 0.6],
-      responseTimes: {
-        'Sonarr': [10, 12, 11],
-        'Radarr': [15, 14, 16],
+      containers: ['qbittorrent'],
+      series: {
+        '1h': {
+          dataPoints: 3,
+          timestamps: [1700000000000, 1700000001000, 1700000002000],
+          downloadRate: [1048576, 2097152, 1572864],
+          uploadRate: [524288, 1048576, 786432],
+          load1: [0.5, 0.75, 0.6],
+          responseTimes: {
+            'Sonarr': [10, 12, 11],
+            'Radarr': [15, 14, 16],
+          },
+          memoryUsage: {
+            'qbittorrent': [512, 520, 518],
+          },
+          samples: [1, 1, 1],
+        },
       },
     };
 
-    const result = decompressChartData(compact);
+    const store = decompressChartData(compact);
+    const series = store['1h'] ?? [];
 
-    expect(result).toHaveLength(3);
-    expect(result[0]?.timestamp).toBe(1700000000000);
-    expect(result[0]?.downloadRate).toBe(1048576);
+    expect(series).toHaveLength(3);
+    expect(series[0]?.point.timestamp).toBe(1700000000000);
+    expect(series[0]?.point.downloadRate).toBe(1048576);
   });
 });
 ```
