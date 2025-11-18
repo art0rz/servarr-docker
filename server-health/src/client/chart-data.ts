@@ -36,8 +36,11 @@ export interface PreparedChartSeries {
   load: Array<XYPoint>;
   responseTimes: Record<string, Array<XYPoint>>;
   memoryUsage: Record<string, Array<XYPoint>>;
+  torrentDownloads: Record<string, Array<XYPoint>>;
+  torrentUploads: Record<string, Array<XYPoint>>;
   services: Array<string>;
   containers: Array<string>;
+  torrents: Array<{ id: string; name: string }>;
   rateScale: RateScale;
   xBounds: { min: number; max: number };
 }
@@ -126,6 +129,33 @@ export function aggregateData(
         memoryValues.length > 0 ? memoryValues.reduce((sum, m) => sum + m, 0) / memoryValues.length : 0;
     }
 
+    const avgTorrentRates: Record<string, { name: string; downloadRate: number; uploadRate: number }> = {};
+    const torrentIds = new Set<string>();
+    for (const point of points) {
+      for (const [id] of Object.entries(point.torrentRates)) {
+        torrentIds.add(id);
+      }
+    }
+    for (const id of torrentIds) {
+      let downloadSum = 0;
+      let uploadSum = 0;
+      let name: string | null = null;
+      for (const point of points) {
+        const entry = point.torrentRates[id];
+        if (entry !== undefined && name === null && entry.name.length > 0) {
+          name = entry.name;
+        }
+        downloadSum += entry?.downloadRate ?? 0;
+        uploadSum += entry?.uploadRate ?? 0;
+      }
+      const divisor = points.length > 0 ? points.length : 1;
+      avgTorrentRates[id] = {
+        name: name ?? id,
+        downloadRate: downloadSum / divisor,
+        uploadRate: uploadSum / divisor,
+      };
+    }
+
     const base: ChartDataPoint = {
       timestamp: bucketTimestamp,
       downloadRate: 0,
@@ -135,6 +165,7 @@ export function aggregateData(
       load15: 0,
       responseTimes: avgResponseTimes,
       memoryUsage: avgMemoryUsage,
+      torrentRates: avgTorrentRates,
     };
 
     const aggregatedPoint = points.reduce<ChartDataPoint>((acc, p) => ({
@@ -146,6 +177,7 @@ export function aggregateData(
       load15: acc.load15 + p.load15 / points.length,
       responseTimes: avgResponseTimes,
       memoryUsage: avgMemoryUsage,
+      torrentRates: avgTorrentRates,
     }), base);
     aggregated.push(aggregatedPoint);
   }
@@ -187,6 +219,7 @@ export function prepareChartSeries(
 
   const servicesSet = new Set<string>();
   const containersSet = new Set<string>();
+  const torrentsMap = new Map<string, string>();
   for (const point of aggregated) {
     for (const service of Object.keys(point.responseTimes)) {
       servicesSet.add(service);
@@ -194,10 +227,16 @@ export function prepareChartSeries(
     for (const container of Object.keys(point.memoryUsage)) {
       containersSet.add(container);
     }
+    for (const [id, snapshot] of Object.entries(point.torrentRates)) {
+      if (!torrentsMap.has(id)) {
+        torrentsMap.set(id, snapshot.name.length > 0 ? snapshot.name : id);
+      }
+    }
   }
 
   const services = Array.from(servicesSet);
   const containers = Array.from(containersSet);
+  const torrents = Array.from(torrentsMap, ([id, name]) => ({ id, name }));
 
   const responseTimes: Record<string, Array<XYPoint>> = {};
   for (const service of services) {
@@ -215,14 +254,30 @@ export function prepareChartSeries(
     }));
   }
 
+  const torrentDownloads: Record<string, Array<XYPoint>> = {};
+  const torrentUploads: Record<string, Array<XYPoint>> = {};
+  for (const torrent of torrents) {
+    torrentDownloads[torrent.id] = aggregated.map(point => ({
+      x: point.timestamp,
+      y: (point.torrentRates[torrent.id]?.downloadRate ?? 0) / rateDivisor,
+    }));
+    torrentUploads[torrent.id] = aggregated.map(point => ({
+      x: point.timestamp,
+      y: (point.torrentRates[torrent.id]?.uploadRate ?? 0) / rateDivisor,
+    }));
+  }
+
   return {
     download,
     upload,
     load,
     responseTimes,
     memoryUsage,
+    torrentDownloads,
+    torrentUploads,
     services,
     containers,
+    torrents,
     rateScale,
     xBounds: { min: minTime, max: now },
   };

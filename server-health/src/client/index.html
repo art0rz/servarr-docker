@@ -41,13 +41,25 @@
       <canvas id="memoryChart"></canvas>
     </div>
 
-    <h2>VPN</h2>
+    <section id="torrentSection" style="display: none;">
+      <h2>Torrent Download Rates</h2>
+      <div class="chart-container">
+        <canvas id="torrentDownloadChart"></canvas>
+      </div>
+
+      <h2>Torrent Upload Rates</h2>
+      <div class="chart-container">
+        <canvas id="torrentUploadChart"></canvas>
+      </div>
+    </section>
+
+    <h2 id="vpnHeading">VPN</h2>
     <div class="grid" id="vpn"></div>
 
     <h2>Services</h2>
     <div class="grid" id="services"></div>
 
-    <h2>Checks</h2>
+    <h2 id="checksHeading">Checks</h2>
     <div class="grid" id="checks"></div>
   </main>
 

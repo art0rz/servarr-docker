@@ -21,6 +21,7 @@ describe('Component Rendering', () => {
         updating: false,
         error: null,
         gitRef: '',
+        torrentRatesEnabled: false,
       };
 
       const html = renderSummary(data);
@@ -45,6 +46,7 @@ describe('Component Rendering', () => {
         updating: false,
         error: null,
         gitRef: '',
+        torrentRatesEnabled: false,
       };
 
       const html = renderSummary(data);

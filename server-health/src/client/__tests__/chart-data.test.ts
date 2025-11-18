@@ -12,6 +12,7 @@ function buildPoint(timestamp: number, overrides: Partial<ChartDataPoint> = {}):
     load15: 0,
     responseTimes: {},
     memoryUsage: {},
+    torrentRates: {},
     ...overrides,
   };
 }
@@ -100,6 +101,9 @@ describe('chart-data utilities', () => {
           load1: 1.2,
           responseTimes: { Sonarr: 120 },
           memoryUsage: { qbittorrent: 512 },
+          torrentRates: {
+            'hash1': { name: 'Torrent Alpha', downloadRate: 1024 * 1024 * 2, uploadRate: 1024 * 128 },
+          },
         }),
         buildPoint(now - secondOffset, {
           downloadRate: 1024 * 1024 * 5,
@@ -107,6 +111,10 @@ describe('chart-data utilities', () => {
           load1: 0.9,
           responseTimes: { Radarr: 80 },
           memoryUsage: { radarr: 256 },
+          torrentRates: {
+            'hash1': { name: 'Torrent Alpha', downloadRate: 1024 * 1024 * 3, uploadRate: 1024 * 64 },
+            'hash2': { name: 'Torrent Beta', downloadRate: 1024 * 512, uploadRate: 1024 * 32 },
+          },
         }),
       ];
     }
@@ -124,6 +132,9 @@ describe('chart-data utilities', () => {
       expect(prepared.services).toEqual(expect.arrayContaining(['Sonarr', 'Radarr']));
       expect(prepared.responseTimes['Sonarr']).toHaveLength(2);
       expect(prepared.memoryUsage['qbittorrent']?.[0]?.y).toBe(512);
+      expect(prepared.torrents).toEqual(expect.arrayContaining([{ id: 'hash1', name: 'Torrent Alpha' }]));
+      expect(prepared.torrentDownloads['hash1']?.length).toBe(2);
+      expect(prepared.torrentUploads['hash2']?.[1]?.y).toBeGreaterThan(0);
 
       expect(prepared.xBounds.min).toBe(now - RESOLUTION_TIME_RANGES['1h']);
       expect(prepared.xBounds.max).toBe(now);

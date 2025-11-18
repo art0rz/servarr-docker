@@ -100,8 +100,11 @@ Ports are forwarded to the host (e.g., health: `localhost:33000`, qBit: `localho
   - OpenVPN prompts: username/password only.
   - `USE_VPN=false` launches qBittorrent outside Gluetun while keeping the Arr stack untouched.
 - **pf-sync** keeps qBittorrent’s listen port aligned with Gluetun’s forwarded port. Health dashboard warns if they diverge.
+- **Top torrents chart** – opt-in by setting `HEALTH_ENABLE_TORRENT_RATES=true` (see below) to record per-torrent bandwidth and graph the busiest downloads.
 - **Cross-Seed**, **Recyclarr**, and **Bazarr** integrations are automatic; no manual config file editing required.
 - **Health server** runs with the detected Docker GID so it can inspect containers via `/var/run/docker.sock`.
+- Health telemetry:
+  - `HEALTH_ENABLE_TORRENT_RATES=true` enables per-torrent sampling; when on, all torrents are tracked each interval (which increases API load/retention size).
 
 Update any setting by editing `.env` and rerunning the bootstrapper (changes are idempotent).
 

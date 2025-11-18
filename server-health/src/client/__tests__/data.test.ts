@@ -39,6 +39,17 @@ function decompressChartData(compact: CompactChartData): Record<TimeResolution, 
         memoryUsage[container] = series.memoryUsage[container]?.[i] ?? 0;
       }
 
+      const torrentRates: Record<string, { name: string; downloadRate: number; uploadRate: number }> = {};
+      for (const torrent of compact.torrents) {
+        const downloadSeries = series.torrentDownload[torrent.id] ?? [];
+        const uploadSeries = series.torrentUpload[torrent.id] ?? [];
+        torrentRates[torrent.id] = {
+          name: torrent.name,
+          downloadRate: downloadSeries[i] ?? 0,
+          uploadRate: uploadSeries[i] ?? 0,
+        };
+      }
+
       buckets.push({
         point: {
           timestamp: series.timestamps[i] ?? Date.now(),
@@ -49,6 +60,7 @@ function decompressChartData(compact: CompactChartData): Record<TimeResolution, 
           load15: 0,
           responseTimes,
           memoryUsage,
+          torrentRates,
         },
         samples: series.samples[i] ?? 1,
       });
@@ -71,6 +83,7 @@ describe('Chart Data Processing', () => {
         retentionMs: 3600000,
         services: ['Sonarr', 'Radarr'],
         containers: ['qbittorrent', 'sonarr'],
+        torrents: [{ id: 'hash1', name: 'Torrent One' }],
         series: {
           '1h': {
             dataPoints: 3,
@@ -85,6 +98,12 @@ describe('Chart Data Processing', () => {
             memoryUsage: {
               'qbittorrent': [512, 520, 518],
               'sonarr': [256, 260, 258],
+            },
+            torrentDownload: {
+              'hash1': [1024, 2048, 0],
+            },
+            torrentUpload: {
+              'hash1': [256, 128, 0],
             },
             samples: [1, 1, 1],
           },
@@ -122,6 +141,7 @@ describe('Chart Data Processing', () => {
         retentionMs: 3600000,
         services: [],
         containers: [],
+        torrents: [],
         series: {
           '1h': {
             dataPoints: 0,
@@ -131,6 +151,8 @@ describe('Chart Data Processing', () => {
             load1: [],
             responseTimes: {},
             memoryUsage: {},
+            torrentDownload: {},
+            torrentUpload: {},
             samples: [],
           },
         },
@@ -147,6 +169,7 @@ describe('Chart Data Processing', () => {
         retentionMs: 3600000,
         services: ['Sonarr'],
         containers: [],
+        torrents: [],
         series: {
           '1h': {
             dataPoints: 2,
@@ -158,6 +181,8 @@ describe('Chart Data Processing', () => {
               'Sonarr': [10],
             },
             memoryUsage: {},
+            torrentDownload: {},
+            torrentUpload: {},
             samples: [1, 1],
           },
         },
@@ -176,6 +201,7 @@ describe('Chart Data Processing', () => {
         retentionMs: 3600000,
         services: [],
         containers: [],
+        torrents: [],
         series: {
           '1h': {
             dataPoints: 3,
@@ -185,6 +211,8 @@ describe('Chart Data Processing', () => {
             load1: [0, 0, 0],
             responseTimes: {},
             memoryUsage: {},
+            torrentDownload: {},
+            torrentUpload: {},
             samples: [1, 1, 1],
           },
         },
@@ -203,6 +231,7 @@ describe('Chart Data Processing', () => {
         retentionMs: 3600000,
         services: [],
         containers: [],
+        torrents: [],
         series: {
           '1h': {
             dataPoints: 2,
@@ -212,6 +241,8 @@ describe('Chart Data Processing', () => {
             load1: [1.23, 4.56],
             responseTimes: {},
             memoryUsage: {},
+            torrentDownload: {},
+            torrentUpload: {},
             samples: [1, 1],
           },
         },
@@ -231,6 +262,7 @@ describe('Chart Data Processing', () => {
         retentionMs: 3600000,
         services: ['Sonarr', 'Radarr', 'Prowlarr', 'Bazarr', 'qBittorrent'],
         containers: [],
+        torrents: [],
         series: {
           '1h': {
             dataPoints: 1,
@@ -246,6 +278,8 @@ describe('Chart Data Processing', () => {
               'qBittorrent': [5],
             },
             memoryUsage: {},
+            torrentDownload: {},
+            torrentUpload: {},
             samples: [1],
           },
         },

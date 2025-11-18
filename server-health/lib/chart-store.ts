@@ -1,3 +1,9 @@
+export interface TorrentRateSnapshot {
+  name: string;
+  downloadRate: number;
+  uploadRate: number;
+}
+
 export interface ChartDataPoint {
   timestamp: number;
   downloadRate: number;
@@ -7,6 +13,7 @@ export interface ChartDataPoint {
   load15: number;
   responseTimes: Record<string, number>;
   memoryUsage: Record<string, number>;
+  torrentRates?: Record<string, TorrentRateSnapshot>;
 }
 
 export const TIME_RESOLUTIONS = ['1h', '1d', '1w', '1m'] as const;
@@ -27,6 +34,8 @@ export interface CompactChartSeries {
   load1: Array<number>;
   responseTimes: Record<string, Array<number>>;
   memoryUsage: Record<string, Array<number>>;
+  torrentDownload?: Record<string, Array<number>>;
+  torrentUpload?: Record<string, Array<number>>;
   samples: Array<number>;
 }
 
@@ -34,6 +43,7 @@ export interface ChartApiPayload {
   retentionMs: number;
   services: Array<string>;
   containers: Array<string>;
+  torrents: Array<{ id: string; name: string }>;
   series: Record<TimeResolution, CompactChartSeries>;
 }
 
@@ -62,11 +72,25 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
     };
   }
 
+  function cloneTorrentRates(rates: Record<string, TorrentRateSnapshot> | undefined) {
+    const clone: Record<string, TorrentRateSnapshot> = {};
+    if (rates === undefined) return clone;
+    for (const [id, snapshot] of Object.entries(rates)) {
+      clone[id] = {
+        name: snapshot.name,
+        downloadRate: snapshot.downloadRate,
+        uploadRate: snapshot.uploadRate,
+      };
+    }
+    return clone;
+  }
+
   function clonePoint(point: ChartDataPoint): ChartDataPoint {
     return {
       ...point,
       responseTimes: { ...point.responseTimes },
       memoryUsage: { ...point.memoryUsage },
+      torrentRates: cloneTorrentRates(point.torrentRates),
     };
   }
 
@@ -84,6 +108,29 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
     }
   }
 
+  function mergeTorrentRates(
+    target: Record<string, TorrentRateSnapshot>,
+    sample: Record<string, TorrentRateSnapshot>,
+    prevCount: number,
+    newCount: number
+  ) {
+    const keys = new Set([...Object.keys(target), ...Object.keys(sample)]);
+    for (const key of keys) {
+      const current = target[key];
+      const incoming = sample[key];
+      const name = incoming?.name ?? current?.name ?? key;
+      const currentDownload = current?.downloadRate ?? 0;
+      const currentUpload = current?.uploadRate ?? 0;
+      const incomingDownload = incoming?.downloadRate ?? 0;
+      const incomingUpload = incoming?.uploadRate ?? 0;
+      target[key] = {
+        name,
+        downloadRate: (currentDownload * prevCount + incomingDownload) / newCount,
+        uploadRate: (currentUpload * prevCount + incomingUpload) / newCount,
+      };
+    }
+  }
+
   function mergeBucket(bucket: ChartBucket, sample: ChartDataPoint) {
     const prevCount = bucket.samples;
     const newCount = prevCount + 1;
@@ -97,6 +144,9 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
     target.load15 = (target.load15 * prevCount + sample.load15) / newCount;
     mergeRecordAverages(target.responseTimes, sample.responseTimes, prevCount, newCount);
     mergeRecordAverages(target.memoryUsage, sample.memoryUsage, prevCount, newCount);
+
+    target.torrentRates ??= {};
+    mergeTorrentRates(target.torrentRates, sample.torrentRates ?? {}, prevCount, newCount);
 
     bucket.samples = newCount;
   }
@@ -137,7 +187,8 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
       typeof candidate.load5 === 'number' &&
       typeof candidate.load15 === 'number' &&
       typeof candidate.responseTimes === 'object' &&
-      typeof candidate.memoryUsage === 'object';
+      typeof candidate.memoryUsage === 'object' &&
+      (candidate.torrentRates === undefined || typeof candidate.torrentRates === 'object');
   }
 
   function sanitizeStore(raw: Record<string, unknown>): ChartStore {
@@ -176,7 +227,8 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
   function buildCompactSeries(
     buckets: Array<ChartBucket>,
     services: Array<string>,
-    containers: Array<string>
+    containers: Array<string>,
+    torrents: Array<{ id: string; name: string }>
   ): CompactChartSeries {
     const points = buckets.map(bucket => bucket.point);
 
@@ -190,6 +242,13 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
       memoryUsage[container] = points.map(point => point.memoryUsage[container] ?? 0);
     }
 
+    const torrentDownload: Record<string, Array<number>> = {};
+    const torrentUpload: Record<string, Array<number>> = {};
+    for (const torrent of torrents) {
+      torrentDownload[torrent.id] = points.map(point => Math.round(point.torrentRates?.[torrent.id]?.downloadRate ?? 0));
+      torrentUpload[torrent.id] = points.map(point => Math.round(point.torrentRates?.[torrent.id]?.uploadRate ?? 0));
+    }
+
     return {
       dataPoints: points.length,
       timestamps: points.map(point => point.timestamp),
@@ -198,6 +257,8 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
       load1: points.map(point => Math.round(point.load1 * 100) / 100),
       responseTimes,
       memoryUsage,
+      torrentDownload,
+      torrentUpload,
       samples: buckets.map(bucket => bucket.samples),
     };
   }
@@ -205,6 +266,7 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
   function buildPayload(store: ChartStore): ChartApiPayload {
     const services = new Set<string>();
     const containers = new Set<string>();
+    const torrents = new Map<string, string>();
 
     for (const resolution of TIME_RESOLUTIONS) {
       for (const bucket of store[resolution]) {
@@ -214,16 +276,24 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
         for (const container of Object.keys(bucket.point.memoryUsage)) {
           containers.add(container);
         }
+        for (const [id, snapshot] of Object.entries(bucket.point.torrentRates ?? {})) {
+          if (snapshot.name.length > 0) {
+            torrents.set(id, snapshot.name);
+          } else if (!torrents.has(id)) {
+            torrents.set(id, id);
+          }
+        }
       }
     }
 
     const serviceList = Array.from(services);
     const containerList = Array.from(containers);
+    const torrentList = Array.from(torrents, ([id, name]) => ({ id, name }));
 
     const series = Object.fromEntries(
       TIME_RESOLUTIONS.map(resolution => [
         resolution,
-        buildCompactSeries(store[resolution], serviceList, containerList),
+        buildCompactSeries(store[resolution], serviceList, containerList, torrentList),
       ])
     ) as Record<TimeResolution, CompactChartSeries>;
 
@@ -231,6 +301,7 @@ export function createChartStoreHelpers(retentionMs: number): ChartStoreHelpers 
       retentionMs,
       services: serviceList,
       containers: containerList,
+      torrents: torrentList,
       series,
     };
   }

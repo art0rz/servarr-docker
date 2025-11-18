@@ -1,6 +1,6 @@
-import type { HealthData, CompactChartData, ChartDataPoint, CheckResult, TimeResolution } from './types';
+import type { HealthData, CompactChartData, ChartDataPoint, CheckResult, TimeResolution, TorrentRate } from './types';
 import { renderSummary, renderVpnCard, renderServiceCard, renderCheckCard } from './components';
-import { initNetworkChart, initLoadChart, initResponseTimeChart, initMemoryChart, updateCharts, setResolution } from './chart';
+import { initNetworkChart, initLoadChart, initResponseTimeChart, initMemoryChart, initTorrentDownloadChart, initTorrentUploadChart, updateCharts, setResolution } from './chart';
 import './style.css';
 
 const DEFAULT_CHART_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -29,6 +29,7 @@ function logError(message: string, error?: unknown) {
 }
 
 let chartsInitialized = false;
+let torrentChartsInitialized = false;
 let selectedResolution: TimeResolution = '1h';
 let chartRetentionMs = DEFAULT_CHART_RETENTION_MS;
 let chartSeriesStore: ChartSeriesStore = createEmptySeriesStore();
@@ -45,11 +46,25 @@ function createEmptySeriesStore(): ChartSeriesStore {
   };
 }
 
+function cloneTorrentRates(rates: Record<string, TorrentRate> | undefined) {
+  const clone: Record<string, TorrentRate> = {};
+  if (rates === undefined) return clone;
+  for (const [id, snapshot] of Object.entries(rates)) {
+    clone[id] = {
+      name: snapshot.name,
+      downloadRate: snapshot.downloadRate,
+      uploadRate: snapshot.uploadRate,
+    };
+  }
+  return clone;
+}
+
 function cloneChartPoint(point: ChartDataPoint): ChartDataPoint {
   return {
     ...point,
     responseTimes: { ...point.responseTimes },
     memoryUsage: { ...point.memoryUsage },
+    torrentRates: cloneTorrentRates(point.torrentRates),
   };
 }
 
@@ -67,6 +82,29 @@ function mergeRecordAverages(
   }
 }
 
+function mergeTorrentRates(
+  target: Record<string, TorrentRate>,
+  sample: Record<string, TorrentRate>,
+  prevCount: number,
+  newCount: number
+) {
+  const keys = new Set([...Object.keys(target), ...Object.keys(sample)]);
+  for (const key of keys) {
+    const current = target[key];
+    const incoming = sample[key];
+    const name = incoming?.name ?? current?.name ?? key;
+    const currentDownload = current?.downloadRate ?? 0;
+    const currentUpload = current?.uploadRate ?? 0;
+    const incomingDownload = incoming?.downloadRate ?? 0;
+    const incomingUpload = incoming?.uploadRate ?? 0;
+    target[key] = {
+      name,
+      downloadRate: (currentDownload * prevCount + incomingDownload) / newCount,
+      uploadRate: (currentUpload * prevCount + incomingUpload) / newCount,
+    };
+  }
+}
+
 function mergeBucket(bucket: ChartBucket, sample: ChartDataPoint) {
   const prevCount = bucket.samples;
   const newCount = prevCount + 1;
@@ -80,6 +118,7 @@ function mergeBucket(bucket: ChartBucket, sample: ChartDataPoint) {
   target.load15 = (target.load15 * prevCount + sample.load15) / newCount;
   mergeRecordAverages(target.responseTimes, sample.responseTimes, prevCount, newCount);
   mergeRecordAverages(target.memoryUsage, sample.memoryUsage, prevCount, newCount);
+  mergeTorrentRates(target.torrentRates, sample.torrentRates, prevCount, newCount);
 
   bucket.samples = newCount;
 }
@@ -116,6 +155,17 @@ function decompressChartData(compact: CompactChartData): ChartSeriesStore {
         memoryUsage[container] = series.memoryUsage[container]?.[i] ?? 0;
       }
 
+      const torrentRates: Record<string, TorrentRate> = {};
+      for (const torrent of compact.torrents) {
+        const downloadSeries = series.torrentDownload[torrent.id] ?? [];
+        const uploadSeries = series.torrentUpload[torrent.id] ?? [];
+        torrentRates[torrent.id] = {
+          name: torrent.name,
+          downloadRate: downloadSeries[i] ?? 0,
+          uploadRate: uploadSeries[i] ?? 0,
+        };
+      }
+
       buckets.push({
         point: {
           timestamp: series.timestamps[i] ?? Date.now(),
@@ -126,6 +176,7 @@ function decompressChartData(compact: CompactChartData): ChartSeriesStore {
           load15: 0,
           responseTimes,
           memoryUsage,
+          torrentRates,
         },
         samples: series.samples[i] ?? 1,
       });
@@ -235,11 +286,21 @@ function renderHealth() {
     }
   }
 
+  if (healthData.torrentRatesEnabled) {
+    const torrentDownloadCanvas = document.getElementById('torrentDownloadChart') as HTMLCanvasElement | null;
+    const torrentUploadCanvas = document.getElementById('torrentUploadChart') as HTMLCanvasElement | null;
+    if (!torrentChartsInitialized && torrentDownloadCanvas !== null && torrentUploadCanvas !== null) {
+      initTorrentDownloadChart(torrentDownloadCanvas);
+      initTorrentUploadChart(torrentUploadCanvas);
+      torrentChartsInitialized = true;
+    }
+  }
+
   // Update charts with cached data
   updateChartsForCurrentResolution();
 
   // Update VPN section - hide if VPN is disabled
-  const vpnSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(4)');
+  const vpnSectionEl = document.getElementById('vpnHeading');
   const vpnDivEl = document.getElementById('vpn');
 
   if (vpnSectionEl !== null && vpnDivEl !== null) {
@@ -263,7 +324,7 @@ function renderHealth() {
   }
 
   // Update checks section
-  const checksSectionEl = document.querySelector<HTMLElement>('h2:nth-of-type(6)');
+  const checksSectionEl = document.getElementById('checksHeading');
   const checksDivEl = document.getElementById('checks');
 
   if (checksSectionEl !== null && checksDivEl !== null) {
@@ -271,6 +332,14 @@ function renderHealth() {
     checksSectionEl.style.display = 'block';
     checksDivEl.style.display = 'grid';
     checksDivEl.innerHTML = checks.length > 0 ? checks : '<div class="empty">No checks configured</div>';
+  }
+  const torrentSectionEl = document.getElementById('torrentSection');
+  if (torrentSectionEl !== null) {
+    if (healthData.torrentRatesEnabled) {
+      torrentSectionEl.style.display = 'block';
+    } else {
+      torrentSectionEl.style.display = 'none';
+    }
   }
 }
 

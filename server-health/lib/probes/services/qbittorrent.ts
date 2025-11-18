@@ -8,12 +8,21 @@ import { httpGet, qbitHeaders, buildHeaders, parseJson } from '../http';
 import type {
   QbitProbeResult,
   QbitEgressProbeResult,
+  QbitTorrentRate,
 } from '../types';
 
 /**
  * Probe qBittorrent (whitelist bypass)
  */
-export async function probeQbit(url: string | undefined, auth: QbitCredentials | null): Promise<QbitProbeResult> {
+interface QbitProbeOptions {
+  includeTorrentRates?: boolean;
+}
+
+export async function probeQbit(
+  url: string | undefined,
+  auth: QbitCredentials | null,
+  options: QbitProbeOptions = {}
+): Promise<QbitProbeResult> {
   const name = 'qBittorrent';
   if (url === undefined) return { name, ok: false, reason: 'container not found' };
 
@@ -66,19 +75,24 @@ export async function probeQbit(url: string | undefined, auth: QbitCredentials |
   }
 
   // Get additional stats from qBittorrent API if authenticated
+  let torrentRates: Array<QbitTorrentRate> = [];
+
   if (ok && auth !== null && auth.username.length > 0 && auth.password.length > 0) {
     const cookie = await getQbitCookie(url, auth).catch(() => null);
     if (cookie !== null) {
-      const stats = await fetchQbitStats(url, cookie);
+      const stats = await fetchQbitStats(url, cookie, options);
       if (stats !== null) {
         total = stats.total;
         listenPort = stats.listenPort ?? null;
+        if (Array.isArray(stats.torrents)) {
+          torrentRates = stats.torrents;
+        }
       }
     }
   }
 
   if (ok) {
-    return { name, url, ok: true, version, http: 200, dl, up, total, listenPort };
+    return { name, url, ok: true, version, http: 200, dl, up, total, listenPort, torrents: torrentRates };
   }
 
   const reason = versionResult.ok ? 'not whitelisted' : (versionResult.err ?? (versionResult.out.length > 0 ? versionResult.out : 'unreachable'));
@@ -179,16 +193,20 @@ async function getQbitCookie(url: string, auth: QbitCredentials) {
   return await qbitLogin(url, auth);
 }
 
-async function fetchQbitStats(url: string, cookie: string) {
+async function fetchQbitStats(url: string, cookie: string, options: QbitProbeOptions) {
   const headers = qbitHeaders(url, [`Cookie: SID=${cookie}`]);
   const [torrents, prefs] = await Promise.all([
     httpGet(`${url}/api/v2/torrents/info?filter=all`, { headers, timeout: 5 }),
     httpGet(`${url}/api/v2/app/preferences`, { headers, timeout: 4 }),
   ]);
 
-  const total = torrents.ok ? parseJson(torrents.out, (data) =>
-    Array.isArray(data) ? data.length : null
-  ) : null;
+  let parsedTorrents: Array<unknown> | null = null;
+  if (torrents.ok) {
+    parsedTorrents = parseJson(torrents.out, (data) =>
+      Array.isArray(data) ? data : null
+    );
+  }
+  const total = parsedTorrents !== null ? parsedTorrents.length : null;
 
   const listenPort = prefs.ok ? parseJson(prefs.out, (data) =>
     typeof (data as { listen_port?: unknown }).listen_port === 'number'
@@ -196,9 +214,34 @@ async function fetchQbitStats(url: string, cookie: string) {
       : null
   ) : null;
 
-  if (total === null && listenPort === null) {
+  let torrentRates: Array<QbitTorrentRate> = [];
+  if (options.includeTorrentRates === true && parsedTorrents !== null) {
+    torrentRates = extractTorrentRates(parsedTorrents);
+  }
+
+  if (total === null && listenPort === null && torrentRates.length === 0) {
     return null;
   }
 
-  return { total, listenPort };
+  return { total, listenPort, torrents: torrentRates };
+}
+
+function extractTorrentRates(data: Array<unknown>): Array<QbitTorrentRate> {
+  const entries: Array<QbitTorrentRate> = [];
+  for (const item of data) {
+    if (typeof item !== 'object' || item === null) continue;
+    const torrent = item as { hash?: unknown; name?: unknown; dlspeed?: unknown; upspeed?: unknown };
+    const hash = typeof torrent.hash === 'string' ? torrent.hash : null;
+    const name = typeof torrent.name === 'string' ? torrent.name : null;
+    const dlspeed = typeof torrent.dlspeed === 'number' ? Math.max(0, torrent.dlspeed) : 0;
+    const upspeed = typeof torrent.upspeed === 'number' ? Math.max(0, torrent.upspeed) : 0;
+    if (hash === null) continue;
+    entries.push({
+      id: hash,
+      name: name ?? hash,
+      downloadRate: dlspeed,
+      uploadRate: upspeed,
+    });
+  }
+  return entries.sort((a, b) => (b.downloadRate + b.uploadRate) - (a.downloadRate + a.uploadRate));
 }

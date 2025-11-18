@@ -34,14 +34,16 @@ export interface HealthCache {
   updating: boolean;
   error: string | null;
   gitRef: string;
+  torrentRatesEnabled: boolean;
 }
 
 export function createInitialHealthCache(options: {
   useVpn: boolean;
   gitRef: string;
   chartData: ChartStore;
+  torrentRatesEnabled: boolean;
 }): HealthCache {
-  const { useVpn, gitRef, chartData } = options;
+  const { useVpn, gitRef, chartData, torrentRatesEnabled } = options;
   return {
     vpn: { name: 'VPN', ok: false, running: false, healthy: null },
     qbitEgress: useVpn
@@ -57,6 +59,7 @@ export function createInitialHealthCache(options: {
     updating: true,
     error: 'initializing',
     gitRef,
+    torrentRatesEnabled,
   };
 }
 

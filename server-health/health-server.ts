@@ -11,7 +11,7 @@ import { loadArrApiKeys, loadQbitCredentials, watchConfigFiles, watchCrossSeedLo
 import { watchDockerEvents, watchGluetunPort, watchContainerStats, getAllContainerMemoryUsage, refreshContainerStats } from './lib/docker';
 import { getLoadAverage } from './lib/system';
 import { createChartStoreHelpers, type ChartDataPoint } from './lib/chart-store';
-import { createInitialHealthCache, applyHealthUpdate, type HealthCache } from './lib/health-cache';
+import { createInitialHealthCache, applyHealthUpdate, type HealthCache, type ServiceProbeResult } from './lib/health-cache';
 import {
   probeGluetun,
   probeQbitEgress,
@@ -39,6 +39,7 @@ const app = express();
 const PORT = process.env['PORT'] ?? '3000';
 const HEALTH_INTERVAL_MS = parseInt(process.env['HEALTH_INTERVAL_MS'] ?? '10000', 10);
 const USE_VPN = process.env['USE_VPN'] === 'true';
+const ENABLE_TORRENT_RATES = process.env['HEALTH_ENABLE_TORRENT_RATES'] === 'true';
 const GIT_REF = resolveGitRef();
 const CONFIG_ROOT = process.env['CONFIG_ROOT'] ?? '/config';
 const HEALTH_DATA_DIR = process.env['HEALTH_DATA_DIR'] ?? join(CONFIG_ROOT, 'health-server');
@@ -59,6 +60,7 @@ let healthCache: HealthCache = createInitialHealthCache({
   useVpn: USE_VPN,
   gitRef: GIT_REF,
   chartData: chartStoreHelpers.createEmptyStore(),
+  torrentRatesEnabled: ENABLE_TORRENT_RATES,
 });
 
 const containersToWatch = ['qbittorrent', 'sonarr', 'radarr', 'prowlarr', 'bazarr', 'cross-seed', 'flaresolverr', 'health-server'] as const;
@@ -274,17 +276,23 @@ async function updateServicesSection() {
     timedProbe('Radarr', probeRadarr(urls['radarr'], apiKeys['radarr'] ?? null)),
     timedProbe('Prowlarr', probeProwlarr(urls['prowlarr'], apiKeys['prowlarr'] ?? null)),
     timedProbe('Bazarr', probeBazarr(urls['bazarr'], apiKeys['bazarr'] ?? null)),
-    timedProbe('qBittorrent', probeQbit(qbitUrl, qbitAuth)),
+    timedProbe(
+      'qBittorrent',
+      probeQbit(qbitUrl, qbitAuth, {
+        includeTorrentRates: ENABLE_TORRENT_RATES,
+      })
+    ),
     timedProbe('Cross-Seed', probeCrossSeed(urls['cross-seed'])),
     timedProbe('FlareSolverr', probeFlare(urls['flaresolverr'])),
     timedProbe('Recyclarr', probeRecyclarr()),
   ];
-  const services = await Promise.all(probes);
+  const rawServices = await Promise.all(probes);
 
   // Track upload/download rates and load average for charts
-  const qbitService = services.find(s => s.name === 'qBittorrent') as QbitProbeResult | undefined;
+  const qbitService = rawServices.find(s => s.name === 'qBittorrent') as (QbitProbeResult & { torrents?: Array<{ id: string; name: string; downloadRate: number; uploadRate: number }> }) | undefined;
   const downloadRate = qbitService?.dl ?? 0;
   const uploadRate = qbitService?.up ?? 0;
+  const torrentRatesRaw = ENABLE_TORRENT_RATES ? (qbitService?.torrents ?? []) : [];
   const loadAvg = await getLoadAverage();
 
   // Ensure we have fresh Docker stats for memory usage
@@ -298,6 +306,17 @@ async function updateServicesSection() {
     memoryUsage[containerName] = Math.round(usage.usedBytes / 1024 / 1024); // Convert to MB
   }
 
+  const torrentRates: ChartDataPoint['torrentRates'] = {};
+  for (const torrent of torrentRatesRaw) {
+    if (torrent.id.length > 0) {
+      torrentRates[torrent.id] = {
+        name: torrent.name,
+        downloadRate: torrent.downloadRate,
+        uploadRate: torrent.uploadRate,
+      };
+    }
+  }
+
   const newDataPoint: ChartDataPoint = {
     timestamp: Date.now(),
     downloadRate,
@@ -307,6 +326,7 @@ async function updateServicesSection() {
     load15: loadAvg.load15,
     responseTimes,
     memoryUsage,
+    torrentRates,
   };
 
   chartStoreHelpers.appendSample(healthCache.chartData, newDataPoint);
@@ -315,7 +335,14 @@ async function updateServicesSection() {
   void saveChartData();
 
   // Broadcast services update and new chart point separately
-  publish({ services });
+  const sanitizedServices: Array<ServiceProbeResult> = rawServices.map(service => {
+    if (service.name === 'qBittorrent' && Object.prototype.hasOwnProperty.call(service, 'torrents')) {
+      const { torrents: _ignored, ...rest } = service as QbitProbeResult & { torrents?: unknown };
+      return rest as ServiceProbeResult;
+    }
+    return service as ServiceProbeResult;
+  });
+  publish({ services: sanitizedServices });
 
   // Only broadcast chart point if there are connected clients
   if (wsClients.size > 0) {
